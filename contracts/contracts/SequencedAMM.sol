@@ -26,7 +26,7 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 contract SequencedAMM is Ownable, ReentrancyGuard {
     address public sequencer;
     bool public sequencerOnly = true;
-    uint256 public maxBatchDelay = 5 minutes;
+    uint256 public maxBatchDelay = 20 seconds;
     uint256 public lastBatchTimestamp;
     
     // User balances
@@ -75,7 +75,7 @@ contract SequencedAMM is Ownable, ReentrancyGuard {
     mapping(uint256 => bytes32) public batchIntentRoots;  // Merkle roots of swap intents
     mapping(uint256 => uint256) public batchSubmissionTimes;
     uint256 public nextBatchId = 1;
-    uint256 public commitRevealDelay = 3 minutes;
+    uint256 public commitRevealDelay = 20 seconds;
 
     /**
      * @dev Tracks the execution results of each swap in a batch
@@ -253,14 +253,24 @@ contract SequencedAMM is Ownable, ReentrancyGuard {
         nextBatchId++;
     }
 
+    // Add this struct definition near your other struct definitions
+    struct BatchSwapParams {
+        address[] users;
+        bool[] ethToTokenFlags;
+        uint256[] amountsIn;
+        uint256[] minAmountsOut;
+        bytes32[][] proofs;
+    }
+
     /**
      * @dev Second step of the commit-reveal pattern - sequencer reveals and executes the batch
      * @param batchId The ID of the batch to execute
-     * @param users Array of user addresses for each swap
-     * @param ethToTokenFlags Array of swap directions (true = ETH to token)
-     * @param amountsIn Array of input amounts for each swap
-     * @param minAmountsOut Array of minimum output amounts (slippage protection)
-     * @param proofs Array of Merkle proofs verifying each swap was in the committed batch
+     * @param params A struct containing all batch parameters:
+     *        - users: Array of user addresses for each swap
+     *        - ethToTokenFlags: Array of swap directions (true = ETH to token)
+     *        - amountsIn: Array of input amounts for each swap
+     *        - minAmountsOut: Array of minimum output amounts (slippage protection)
+     *        - proofs: Array of Merkle proofs verifying each swap was in the committed batch
      * 
      * This function:
      * 1. Verifies the mandatory waiting period has passed
@@ -273,63 +283,85 @@ contract SequencedAMM is Ownable, ReentrancyGuard {
      */
     function batchSwap(
         uint256 batchId,
-        address[] calldata users,
-        bool[] calldata ethToTokenFlags,
-        uint256[] calldata amountsIn,
-        uint256[] calldata minAmountsOut,
-        bytes32[][] calldata proofs
+        BatchSwapParams calldata params
     ) external onlySequencer nonReentrant {
         require(block.timestamp >= batchSubmissionTimes[batchId] + commitRevealDelay, 
                 "Must wait after commit");
         require(batchIntentRoots[batchId] != bytes32(0), "Batch not committed");
-        require(users.length == ethToTokenFlags.length &&
-                users.length == amountsIn.length &&
-                users.length == minAmountsOut.length &&
-                users.length == proofs.length,
+        
+        // Check array lengths match
+        require(params.users.length == params.ethToTokenFlags.length &&
+                params.users.length == params.amountsIn.length &&
+                params.users.length == params.minAmountsOut.length &&
+                params.users.length == params.proofs.length,
                 "Array length mismatch");
         
-        // Verify merkle proofs and execute swaps
-        BatchResult storage result = batchResults[batchId];
-        
-        for (uint i = 0; i < users.length; i++) {
-            // Create swap intent hash
-            SwapIntent memory intent = SwapIntent({
-                user: users[i],
-                ethToToken: ethToTokenFlags[i],
-                amountIn: amountsIn[i],
-                minAmountOut: minAmountsOut[i],
-                timestamp: 0 // Not needed for hash verification
-            });
-            
-            bytes32 leaf = keccak256(abi.encode(intent));
-            
-            // Verify merkle proof
-            bool isValidProof = MerkleProof.verify(
-                proofs[i],
-                batchIntentRoots[batchId],
-                leaf
-            );
-            
-            if (!isValidProof) {
-                result.successfulSwaps[i] = false;
-                result.failureReasons[i] = "Invalid proof";
-                continue;
-            }
-            
-            try this.executeSwap(users[i], ethToTokenFlags[i], amountsIn[i], minAmountsOut[i]) returns (uint256 amountOut) {
-                result.successfulSwaps[i] = true;
-                result.successCount++;
-                result.outputAmounts[i] = amountOut;
-            } catch Error(string memory reason) {
-                result.successfulSwaps[i] = false;
-                result.failureReasons[i] = reason;
-            }
-        }
+        // Process swaps in smaller batches to avoid stack depth issues
+        processSwapBatch(batchId, params);
         
         // Update last batch timestamp
         lastBatchTimestamp = block.timestamp;
         
-        emit BatchSwapExecuted(batchId, users.length, result.successCount);
+        emit BatchSwapExecuted(batchId, params.users.length, batchResults[batchId].successCount);
+    }
+
+    // Split the processing logic into a separate function
+    function processSwapBatch(
+        uint256 batchId,
+        BatchSwapParams calldata params
+    ) private {
+        BatchResult storage result = batchResults[batchId];
+        
+        for (uint i = 0; i < params.users.length; i++) {
+            // Process swaps individually to reduce local variables
+            processSwap(batchId, i, params.users[i], params.ethToTokenFlags[i], 
+                       params.amountsIn[i], params.minAmountsOut[i], params.proofs[i], result);
+        }
+    }
+
+    // Process an individual swap
+    function processSwap(
+        uint256 batchId,
+        uint256 swapIndex,
+        address user,
+        bool ethToToken,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes32[] calldata proof,
+        BatchResult storage result
+    ) private {
+        // Create swap intent hash
+        SwapIntent memory intent = SwapIntent({
+            user: user,
+            ethToToken: ethToToken,
+            amountIn: amountIn,
+            minAmountOut: minAmountOut,
+            timestamp: 0 // Not needed for hash verification
+        });
+        
+        bytes32 leaf = keccak256(abi.encode(intent));
+        
+        // Verify merkle proof
+        bool isValidProof = MerkleProof.verify(
+            proof,
+            batchIntentRoots[batchId],
+            leaf
+        );
+        
+        if (!isValidProof) {
+            result.successfulSwaps[swapIndex] = false;
+            result.failureReasons[swapIndex] = "Invalid proof";
+            return;
+        }
+        
+        try this.executeSwap(user, ethToToken, amountIn, minAmountOut) returns (uint256 amountOut) {
+            result.successfulSwaps[swapIndex] = true;
+            result.successCount++;
+            result.outputAmounts[swapIndex] = amountOut;
+        } catch Error(string memory reason) {
+            result.successfulSwaps[swapIndex] = false;
+            result.failureReasons[swapIndex] = reason;
+        }
     }
 
     /**
