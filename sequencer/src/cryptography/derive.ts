@@ -21,7 +21,7 @@ async function loadPrivKey(file: string): Promise<string> {
   return hex.toLowerCase();
 }
 
-function privToPub(privHex: string): string {
+export function privToPub(privHex: string): string {
   const pub = getPublicKey(privHex, false);           // 65 bytes, uncompressed
   return '0x' + Buffer.from(pub).toString('hex');
 }
