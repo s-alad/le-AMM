@@ -17,6 +17,7 @@
     "hardhat": "^2.23.0"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.3.0"
+    "@openzeppelin/contracts": "^5.3.0",
+    "framer-motion": "^12.9.2"
   }
 }
