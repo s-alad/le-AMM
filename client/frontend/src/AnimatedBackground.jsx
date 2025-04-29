@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+// import { motion } from 'framer-motion';
 import './AnimatedBackground.css';
 
 const NUM_TOKENS = 15;
@@ -24,8 +24,8 @@ const AnimatedBackground = () => {
 
     useEffect(() => {
         const generatedTokens = [];
-        const screenWidth = window.innerWidth;
-        const screenHeight = window.innerHeight;
+        // const screenWidth = window.innerWidth;
+        // const screenHeight = window.innerHeight;
 
         for (let i = 0; i < NUM_TOKENS; i++) {
             const size = random(MIN_SIZE, MAX_SIZE);
