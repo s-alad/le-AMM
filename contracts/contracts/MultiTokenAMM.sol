@@ -558,15 +558,4 @@ contract MultiTokenAMM is ReentrancyGuard, Ownable {
     function getTokenBalance(address user, address token) external view returns (uint256) {
         return tokenBalances[user][token];
     }
-    
-    // Get multiple token balances for a user in one call
-    function getUserBalances(address user, address[] calldata tokens) external view returns (uint256[] memory) {
-        uint256[] memory balances = new uint256[](tokens.length);
-        
-        for (uint i = 0; i < tokens.length; i++) {
-            balances[i] = tokenBalances[user][tokens[i]];
-        }
-        
-        return balances;
-    }
 }
