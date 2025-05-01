@@ -121,11 +121,13 @@ async function main() {
   
   // Define constants
   const ETH_ADDRESS = "0x0000000000000000000000000000000000000000";
-  const MINT_AMOUNT = ethers.parseEther("1000");
-  const DEPOSIT_AMOUNT = ethers.parseEther("500");
-  const SWAP_AMOUNT = ethers.parseEther("20");
-  const MIN_AMOUNT_OUT = ethers.parseEther("10");
-  const MIN_ETH_AMOUNT_OUT = ethers.parseEther("0.03"); // Much lower minimum for ETH swaps
+  const MINT_AMOUNT = ethers.parseEther("1000"); // Mint a reasonable amount to each wallet
+  const SWAP_AMOUNT = ethers.parseEther("100");  // Amount to swap in each transaction
+  const DEPOSIT_AMOUNT = SWAP_AMOUNT;            // Make deposit amount equal to swap amount
+
+  // For minimum output amounts, keep them lower than the input to account for slippage
+  const MIN_AMOUNT_OUT = ethers.parseEther("90");  // Minimum token output (10% slippage tolerance)
+  const MIN_ETH_AMOUNT_OUT = ethers.parseEther("0.18");  // Minimum ETH output
   console.log("Constants defined:", {
     ETH_ADDRESS,
     MINT_AMOUNT: ethers.formatEther(MINT_AMOUNT) + " tokens",
