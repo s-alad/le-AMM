@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract MultiTokenAMM is ReentrancyGuard, Ownable {
@@ -29,17 +28,10 @@ contract MultiTokenAMM is ReentrancyGuard, Ownable {
     address public sequencer;
     uint256 public batchCounter = 0;
     uint256 public delay = 20 seconds;
-    uint256 public emergencyTimeout = 24 hours;
-    uint256 public lastSequencerActivity;
     bool public sequencerActive = true;
     uint256 public feeRate = 3; // 0.3% fee (divided by 1000)
     
-    mapping(uint256 => bytes32) public batchIntentRoots;
-    mapping(uint256 => uint256) public batchCommitTimes;
-    mapping(uint256 => BatchResult) public batchResults;
-    mapping(bytes32 => bool) public executedIntents; // Track which intents were processed
-    
-    // Result tracking for batches
+    // Batch execution tracking
     struct BatchResult {
         uint256 totalProcessed;
         uint256 successCount;
@@ -49,55 +41,43 @@ contract MultiTokenAMM is ReentrancyGuard, Ownable {
     
     enum FailureReason { 
         NONE,
-        INVALID_PROOF, 
         INSUFFICIENT_BALANCE, 
         SLIPPAGE_TOO_HIGH, 
         POOL_NOT_FOUND,
         OTHER
     }
     
-    // Swap intent structure
-    struct SwapIntent {
+    // Add this mapping to store batch results
+    mapping(uint256 => BatchResult) public batchResults;
+    
+    // Simplified swap struct
+    struct SwapRequest {
         address user;
         address tokenIn;
         address tokenOut;
         uint256 amountIn;
         uint256 minAmountOut;
-        uint256 timestamp;
     }
     
     // Events
     event LiquidityAdded(address indexed provider, address indexed token0, address indexed token1, uint256 amount0, uint256 amount1);
     event LiquidityRemoved(address indexed provider, address indexed token0, address indexed token1, uint256 amount0, uint256 amount1);
     event Swap(address indexed user, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
-    event BatchCommitted(uint256 indexed batchId, bytes32 intentRoot, uint256 timestamp);
     event BatchExecuted(uint256 indexed batchId, uint256 swapsProcessed, uint256 swapsSucceeded, uint256 swapsFailed);
     event SwapFailed(uint256 indexed batchId, uint256 swapIndex, FailureReason reason);
     event SequencerUpdated(address newSequencer);
     event SequencerStatusChanged(bool active);
-    event EmergencyDirectSwap(address indexed user, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
     event FeeUpdated(uint256 newFeeRate);
     event DelayUpdated(uint256 newDelay);
-    event TimeoutUpdated(uint256 newTimeout);
     
     constructor() Ownable(msg.sender) {
         sequencer = msg.sender;
-        lastSequencerActivity = block.timestamp;
         // Add ETH as first supported token
         supportedTokens.push(address(0));
     }
     
     modifier onlySequencer() {
         require(msg.sender == sequencer, "Only sequencer");
-        _;
-    }
-    
-    modifier sequencerActiveOrTimedOut() {
-        require(
-            sequencerActive || 
-            block.timestamp > lastSequencerActivity + emergencyTimeout, 
-            "Sequencer active and not timed out"
-        );
         _;
     }
     
@@ -304,169 +284,75 @@ contract MultiTokenAMM is ReentrancyGuard, Ownable {
         return getSwapAmount(amountIn, reserveIn, reserveOut);
     }
     
-    // Direct emergency swap (bypasses sequencer if timed out)
-    function emergencySwap(
-        address tokenIn, 
-        address tokenOut, 
-        uint256 amountIn, 
-        uint256 minAmountOut
-    ) external nonReentrant sequencerActiveOrTimedOut returns (uint256) {
-        require(!sequencerActive || block.timestamp > lastSequencerActivity + emergencyTimeout, 
-                "Sequencer is active");
-        require(tokenBalances[msg.sender][tokenIn] >= amountIn, "Insufficient balance");
+    // Execute batch of swaps (simplified, direct from sequencer)
+    function batchSwap(SwapRequest[] calldata swapRequests) external onlySequencer {
+        require(sequencerActive, "Sequencer not active");
         
-        bytes32 poolKey = getPoolKey(tokenIn, tokenOut);
-        LiquidityPool storage pool = pools[poolKey];
-        require(pool.reserve0 > 0 && pool.reserve1 > 0, "Pool doesn't exist");
+        uint256 batchId = ++batchCounter;
+        uint256 successCount = 0;
+        uint256 failedCount = 0;
         
-        bool isToken0 = tokenIn == pool.token0;
-        uint256 reserveIn = isToken0 ? pool.reserve0 : pool.reserve1;
-        uint256 reserveOut = isToken0 ? pool.reserve1 : pool.reserve0;
+        // Initialize the BatchResult
+        batchResults[batchId].totalProcessed = swapRequests.length;
         
-        uint256 amountOut = getSwapAmount(amountIn, reserveIn, reserveOut);
-        require(amountOut >= minAmountOut, "Slippage too high");
-        
-        // Update balances and reserves
-        tokenBalances[msg.sender][tokenIn] -= amountIn;
-        tokenBalances[msg.sender][tokenOut] += amountOut;
-        
-        if (isToken0) {
-            pool.reserve0 += amountIn;
-            pool.reserve1 -= amountOut;
-        } else {
-            pool.reserve0 -= amountOut;
-            pool.reserve1 += amountIn;
-        }
-        
-        emit EmergencyDirectSwap(msg.sender, tokenIn, tokenOut, amountIn, amountOut);
-        return amountOut;
-    }
-    
-    // Commit batch of swap intents (sequencer only)
-    function commitBatchIntents(bytes32 intentRoot, uint256 /* batchSize */) external onlySequencer {
-        sequencerActive = true;
-        lastSequencerActivity = block.timestamp;
-        batchCounter++;
-        batchIntentRoots[batchCounter] = intentRoot;
-        batchCommitTimes[batchCounter] = block.timestamp;
-        
-        emit BatchCommitted(batchCounter, intentRoot, block.timestamp);
-    }
-    
-    // Execute batch of swaps after delay
-    function batchSwap(
-        uint256 batchId, 
-        SwapParams memory params
-    ) external onlySequencer {
-        require(block.timestamp >= batchCommitTimes[batchId] + delay, "Delay not passed");
-        require(params.users.length == params.tokensIn.length, "Mismatched array lengths");
-        require(params.users.length == params.tokensOut.length, "Mismatched array lengths");
-        require(params.users.length == params.amountsIn.length, "Mismatched array lengths");
-        require(params.users.length == params.minAmountsOut.length, "Mismatched array lengths");
-        require(params.users.length == params.proofs.length, "Mismatched array lengths");
-        
-        // Set up batch result tracking
-        BatchResult storage result = batchResults[batchId];
-        result.totalProcessed = params.users.length;
-        result.successCount = 0;
-        result.failedCount = 0;
-        
-        lastSequencerActivity = block.timestamp;
-        
-        for (uint256 i = 0; i < params.users.length; i++) {
-            bytes32 intentHash = getIntentHash(
-                params.users[i],
-                params.tokensIn[i],
-                params.tokensOut[i],
-                params.amountsIn[i],
-                params.minAmountsOut[i],
-                0
-            );
+        for (uint256 i = 0; i < swapRequests.length; i++) {
+            SwapRequest memory req = swapRequests[i];
             
-            // Check if this intent was already executed
-            if (executedIntents[intentHash]) {
-                result.failures[i] = FailureReason.OTHER;
-                result.failedCount++;
-                emit SwapFailed(batchId, i, FailureReason.OTHER);
-                continue;
-            }
-            
-            bool valid = MerkleProof.verify(
-                params.proofs[i],
-                batchIntentRoots[batchId],
-                intentHash
-            );
-            
-            if (!valid) {
-                result.failures[i] = FailureReason.INVALID_PROOF;
-                result.failedCount++;
-                emit SwapFailed(batchId, i, FailureReason.INVALID_PROOF);
-                continue;
-            }
-            
-            if (tokenBalances[params.users[i]][params.tokensIn[i]] < params.amountsIn[i]) {
-                result.failures[i] = FailureReason.INSUFFICIENT_BALANCE;
-                result.failedCount++;
+            // Check user balance
+            if (tokenBalances[req.user][req.tokenIn] < req.amountIn) {
+                batchResults[batchId].failures[i] = FailureReason.INSUFFICIENT_BALANCE;
+                failedCount++;
                 emit SwapFailed(batchId, i, FailureReason.INSUFFICIENT_BALANCE);
                 continue;
             }
             
-            bytes32 poolKey = getPoolKey(params.tokensIn[i], params.tokensOut[i]);
+            // Check pool exists
+            bytes32 poolKey = getPoolKey(req.tokenIn, req.tokenOut);
             LiquidityPool storage pool = pools[poolKey];
             
             if (pool.reserve0 == 0 && pool.reserve1 == 0) {
-                result.failures[i] = FailureReason.POOL_NOT_FOUND;
-                result.failedCount++;
+                batchResults[batchId].failures[i] = FailureReason.POOL_NOT_FOUND;
+                failedCount++;
                 emit SwapFailed(batchId, i, FailureReason.POOL_NOT_FOUND);
                 continue;
             }
             
-            bool isToken0 = params.tokensIn[i] == pool.token0;
+            // Calculate swap output
+            bool isToken0 = req.tokenIn == pool.token0;
             uint256 reserveIn = isToken0 ? pool.reserve0 : pool.reserve1;
             uint256 reserveOut = isToken0 ? pool.reserve1 : pool.reserve0;
             
-            uint256 amountOut = getSwapAmount(params.amountsIn[i], reserveIn, reserveOut);
+            uint256 amountOut = getSwapAmount(req.amountIn, reserveIn, reserveOut);
             
-            if (amountOut < params.minAmountsOut[i]) {
-                result.failures[i] = FailureReason.SLIPPAGE_TOO_HIGH;
-                result.failedCount++;
+            // Check minimum output requirement
+            if (amountOut < req.minAmountOut) {
+                batchResults[batchId].failures[i] = FailureReason.SLIPPAGE_TOO_HIGH;
+                failedCount++;
                 emit SwapFailed(batchId, i, FailureReason.SLIPPAGE_TOO_HIGH);
                 continue;
             }
             
-            // Mark intent as executed
-            executedIntents[intentHash] = true;
-            
             // Update balances and reserves
-            tokenBalances[params.users[i]][params.tokensIn[i]] -= params.amountsIn[i];
-            tokenBalances[params.users[i]][params.tokensOut[i]] += amountOut;
+            tokenBalances[req.user][req.tokenIn] -= req.amountIn;
+            tokenBalances[req.user][req.tokenOut] += amountOut;
             
             if (isToken0) {
-                pool.reserve0 += params.amountsIn[i];
+                pool.reserve0 += req.amountIn;
                 pool.reserve1 -= amountOut;
             } else {
                 pool.reserve0 -= amountOut;
-                pool.reserve1 += params.amountsIn[i];
+                pool.reserve1 += req.amountIn;
             }
             
-            emit Swap(params.users[i], params.tokensIn[i], params.tokensOut[i], params.amountsIn[i], amountOut);
-            result.successCount++;
+            emit Swap(req.user, req.tokenIn, req.tokenOut, req.amountIn, amountOut);
+            successCount++;
         }
         
-        emit BatchExecuted(batchId, params.users.length, result.successCount, result.failedCount);
-    }
-    
-    // Check if an intent was included in a batch
-    function wasIntentExecuted(
-        address user,
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        uint256 timestamp
-    ) external view returns (bool) {
-        bytes32 intentHash = getIntentHash(user, tokenIn, tokenOut, amountIn, minAmountOut, timestamp);
-        return executedIntents[intentHash];
+        // Update batch statistics
+        batchResults[batchId].successCount = successCount;
+        batchResults[batchId].failedCount = failedCount;
+        
+        emit BatchExecuted(batchId, swapRequests.length, successCount, failedCount);
     }
     
     // Get failure reason for a specific swap in a batch
@@ -499,12 +385,6 @@ contract MultiTokenAMM is ReentrancyGuard, Ownable {
         emit DelayUpdated(newDelay);
     }
     
-    // Change emergency timeout (only owner)
-    function setEmergencyTimeout(uint256 newTimeout) external onlyOwner {
-        emergencyTimeout = newTimeout;
-        emit TimeoutUpdated(newTimeout);
-    }
-    
     // Change fee rate (only owner)
     function setFeeRate(uint256 newFeeRate) external onlyOwner {
         require(newFeeRate <= 50, "Fee cannot exceed 5%"); // Max 5% fee (50/1000)
@@ -518,35 +398,6 @@ contract MultiTokenAMM is ReentrancyGuard, Ownable {
             if (supportedTokens[i] == token) revert("Token already supported");
         }
         supportedTokens.push(token);
-    }
-    
-    // Helper struct for batch parameters
-    struct SwapParams {
-        address[] users;
-        address[] tokensIn;
-        address[] tokensOut;
-        uint256[] amountsIn;
-        uint256[] minAmountsOut;
-        bytes32[][] proofs;
-    }
-    
-    // Hash an intent for verification
-    function getIntentHash(
-        address user,
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        uint256 timestamp
-    ) public pure returns (bytes32) {
-        return keccak256(abi.encode(
-            user,
-            tokenIn,
-            tokenOut,
-            amountIn,
-            minAmountOut,
-            timestamp
-        ));
     }
     
     // Get the ETH balance of a user

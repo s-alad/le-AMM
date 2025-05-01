@@ -22,12 +22,6 @@ async function main() {
     '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a', // Account #2
     '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6', // Account #3
     '0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a', // Account #4
-    '0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba', // Account #5
-    '0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e', // Account #6
-    '0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356', // Account #7
-    '0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97', // Account #8
-    '0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6', // Account #9
-    '0xf214f2b2cd398c806f84e317254e0f0b801d0643303237d97a22a48e01628897'  // Account #10
   ];
   
   // Create wallet instances
@@ -37,8 +31,8 @@ async function main() {
   const deployerWallet = wallets[0];
   console.log("Using deployer address:", deployerWallet.address);
   
-  // Get remaining wallets for testing - now 10 wallets instead of 4
-  const testWallets = wallets.slice(1, 11);
+  // Get remaining wallets for testing - now 4 wallets instead of 2
+  const testWallets = wallets.slice(1, 5);
   
   // Use pre-funded accounts instead of generating random wallets
   console.log("\n=== Step 0: Using pre-funded Hardhat wallets ===");
@@ -141,37 +135,44 @@ async function main() {
     MIN_ETH_AMOUNT_OUT: ethers.formatEther(MIN_ETH_AMOUNT_OUT) + " ETH"
   });
   
-  // Token combinations for swaps - expand to 10 combinations for 10 wallets
-  const swapCombinations = [
+  // Token combinations for swaps - round 1
+  const swapCombinationsRound1 = [
     { tokenIn: tromerTokenAddress, tokenOut: leTokenAddress },
-    { tokenIn: leTokenAddress, tokenOut: tromerTokenAddress },
-    { tokenIn: tromerTokenAddress, tokenOut: ETH_ADDRESS },
     { tokenIn: leTokenAddress, tokenOut: simpleTokenAddress },
-    { tokenIn: simpleTokenAddress, tokenOut: tromerTokenAddress },
-    { tokenIn: simpleTokenAddress, tokenOut: leTokenAddress },
     { tokenIn: simpleTokenAddress, tokenOut: ETH_ADDRESS },
-    { tokenIn: leTokenAddress, tokenOut: ETH_ADDRESS },
-    { tokenIn: ETH_ADDRESS, tokenOut: tromerTokenAddress },
-    { tokenIn: ETH_ADDRESS, tokenOut: simpleTokenAddress }
+    { tokenIn: tromerTokenAddress, tokenOut: simpleTokenAddress },
+    { tokenIn: leTokenAddress, tokenOut: ETH_ADDRESS }
   ];
-  console.log(`Defined ${swapCombinations.length} swap combinations`);
+  
+  // Token combinations for swaps - round 2 (reverse the pairs)
+  const swapCombinationsRound2 = [
+    { tokenIn: leTokenAddress, tokenOut: tromerTokenAddress },
+    { tokenIn: simpleTokenAddress, tokenOut: leTokenAddress },
+    { tokenIn: ETH_ADDRESS, tokenOut: simpleTokenAddress },
+    { tokenIn: simpleTokenAddress, tokenOut: tromerTokenAddress },
+    { tokenIn: ETH_ADDRESS, tokenOut: leTokenAddress }
+  ];
+  
+  console.log(`Defined ${swapCombinationsRound1.length} swap combinations for round 1`);
+  console.log(`Defined ${swapCombinationsRound2.length} swap combinations for round 2`);
   
   console.log("\n=== Step 1: Minting tokens to wallets ===");
   // Mint tokens to each wallet (requires owner privileges)
   for (let i = 0; i < testWallets.length; i++) {
-    const { tokenIn } = swapCombinations[i % swapCombinations.length];
+    // Round 1 token combinations
+    const { tokenIn: tokenInRound1 } = swapCombinationsRound1[i];
     
-    if (tokenIn !== ETH_ADDRESS) {
+    if (tokenInRound1 !== ETH_ADDRESS) {
       // Determine which token to mint
       let tokenContract;
       let tokenName;
-      if (tokenIn === tromerTokenAddress) {
+      if (tokenInRound1 === tromerTokenAddress) {
         tokenContract = tromerToken;
         tokenName = "Tromer";
-      } else if (tokenIn === leTokenAddress) {
+      } else if (tokenInRound1 === leTokenAddress) {
         tokenContract = leToken;
         tokenName = "LeToken";
-      } else if (tokenIn === simpleTokenAddress) {
+      } else if (tokenInRound1 === simpleTokenAddress) {
         tokenContract = simpleToken;
         tokenName = "SimpleToken";
       }
@@ -193,29 +194,55 @@ async function main() {
       } catch (error) {
         console.error(`❌ Error minting tokens: ${error.message}`);
       }
-    } else {
-      // For ETH, we'll use the existing ETH
-      console.log(`Using existing ETH for ${testWallets[i].address}`);
-      const balance = await provider.getBalance(testWallets[i].address);
-      console.log(`Wallet ${i+1} has ${ethers.formatEther(balance)} ETH`);
+    }
+    
+    // Also mint tokens for round 2 if needed (for ETH -> token swaps)
+    const { tokenOut: tokenOutRound2 } = swapCombinationsRound2[i];
+    if (tokenOutRound2 !== ETH_ADDRESS) {
+      // Skip if the token is the same as round 1
+      if (tokenOutRound2 !== tokenInRound1) {
+        let tokenContract;
+        let tokenName;
+        if (tokenOutRound2 === tromerTokenAddress) {
+          tokenContract = tromerToken;
+          tokenName = "Tromer";
+        } else if (tokenOutRound2 === leTokenAddress) {
+          tokenContract = leToken;
+          tokenName = "LeToken";
+        } else if (tokenOutRound2 === simpleTokenAddress) {
+          tokenContract = simpleToken;
+          tokenName = "SimpleToken";
+        }
+        
+        console.log(`Minting additional ${ethers.formatEther(MINT_AMOUNT)} ${tokenName} tokens to ${testWallets[i].address} (for round 2)`);
+        try {
+          // Connect with deployer wallet to mint tokens
+          const tx = await tokenContract.connect(deployerWallet).mint(testWallets[i].address, MINT_AMOUNT);
+          await tx.wait();
+          console.log(`✅ Additional minting successful: tx ${tx.hash}`);
+        } catch (error) {
+          console.error(`❌ Error minting additional tokens: ${error.message}`);
+        }
+      }
     }
   }
   
   console.log("\n=== Step 2: Approving and depositing tokens ===");
   for (let i = 0; i < testWallets.length; i++) {
-    const { tokenIn } = swapCombinations[i % swapCombinations.length];
+    // Round 1 token combinations
+    const { tokenIn: tokenInRound1 } = swapCombinationsRound1[i];
     
-    if (tokenIn !== ETH_ADDRESS) {
+    if (tokenInRound1 !== ETH_ADDRESS) {
       // Determine which token to approve
       let tokenContract;
       let tokenName;
-      if (tokenIn === tromerTokenAddress) {
+      if (tokenInRound1 === tromerTokenAddress) {
         tokenContract = tromerToken;
         tokenName = "Tromer";
-      } else if (tokenIn === leTokenAddress) {
+      } else if (tokenInRound1 === leTokenAddress) {
         tokenContract = leToken;
         tokenName = "LeToken";
-      } else if (tokenIn === simpleTokenAddress) {
+      } else if (tokenInRound1 === simpleTokenAddress) {
         tokenContract = simpleToken;
         tokenName = "SimpleToken";
       }
@@ -229,12 +256,12 @@ async function main() {
         
         console.log(`Depositing ${ethers.formatEther(DEPOSIT_AMOUNT)} ${tokenName} for ${testWallets[i].address}`);
         // Deposit tokens to AMM
-        const depositTx = await multiTokenAmm.connect(testWallets[i]).depositToken(tokenIn, DEPOSIT_AMOUNT);
+        const depositTx = await multiTokenAmm.connect(testWallets[i]).depositToken(tokenInRound1, DEPOSIT_AMOUNT);
         await depositTx.wait();
         console.log(`✅ Deposit successful: tx ${depositTx.hash}`);
         
         // Verify the deposit
-        const balance = await multiTokenAmm.getTokenBalance(testWallets[i].address, tokenIn);
+        const balance = await multiTokenAmm.getTokenBalance(testWallets[i].address, tokenInRound1);
         console.log(`Wallet ${i+1} now has ${ethers.formatEther(balance)} ${tokenName} in the AMM`);
       } catch (error) {
         console.error(`❌ Error in approval/deposit:`, error.message);
@@ -252,6 +279,20 @@ async function main() {
         console.log(`Wallet ${i+1} now has ${ethers.formatEther(balance)} ETH in the AMM`);
       } catch (error) {
         console.error(`❌ Error in ETH deposit:`, error.message);
+      }
+    }
+    
+    // Also deposit for round 2 if needed (for ETH -> token swaps)
+    const { tokenIn: tokenInRound2 } = swapCombinationsRound2[i];
+    if (tokenInRound2 === ETH_ADDRESS) {
+      console.log(`Depositing additional ${ethers.formatEther(DEPOSIT_AMOUNT)} ETH for ${testWallets[i].address} (for round 2)`);
+      try {
+        // Deposit ETH to AMM
+        const depositTx = await multiTokenAmm.connect(testWallets[i]).depositETH({ value: DEPOSIT_AMOUNT });
+        await depositTx.wait();
+        console.log(`✅ Additional ETH Deposit successful: tx ${depositTx.hash}`);
+      } catch (error) {
+        console.error(`❌ Error in additional ETH deposit:`, error.message);
       }
     }
     
@@ -389,149 +430,39 @@ async function main() {
     console.log("Continuing with existing pools...");
   }
   
-  console.log("\n=== Step 4: Creating Merkle Tree for batch swap ===");
-
-  // Use the exact same createIntent function from merkle.js
-  function createIntent(user, tokenIn, tokenOut, amountIn, minAmountOut, timestamp = 0) {
-    const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
-      ['address', 'address', 'address', 'uint256', 'uint256', 'uint256'], 
-      [user, tokenIn, tokenOut, amountIn, minAmountOut, timestamp]
-    );
-    
-    return ethers.keccak256(encoded);
-  }
-
-  // Initialize arrays to hold all our intent data
-  const intentUsers = [];
-  const intentTokensIn = [];
-  const intentTokensOut = [];
-  const intentAmountsIn = [];
-  const intentMinAmountsOut = [];
-  const intentTimestamps = [];
-  const leafHashes = [];
-
-  // Create intents for all test wallets
-  console.log("\nCreating intents for all test wallets:");
+  console.log("\n=== Step 4: Executing Batch Swaps - Round 1 ===");
+  
+  // Create SwapRequest objects for round 1
+  const swapRequestsRound1 = [];
   for (let i = 0; i < testWallets.length; i++) {
-    const user = testWallets[i].address;
-    const { tokenIn, tokenOut } = swapCombinations[i % swapCombinations.length];
-    const amountIn = SWAP_AMOUNT;
-    let minAmountOut;
-    if (tokenOut === ETH_ADDRESS) {
-      minAmountOut = MIN_ETH_AMOUNT_OUT;
-    } else {
-      minAmountOut = MIN_AMOUNT_OUT;
-    }
-    const timestamp = 0; // Using 0 for simplicity as in merkle.js
+    const { tokenIn, tokenOut } = swapCombinationsRound1[i];
     
-    // Store all intent data
-    intentUsers.push(user);
-    intentTokensIn.push(tokenIn);
-    intentTokensOut.push(tokenOut);
-    intentAmountsIn.push(amountIn.toString());
-    intentMinAmountsOut.push(minAmountOut.toString());
-    intentTimestamps.push(timestamp);
+    swapRequestsRound1.push({
+      user: testWallets[i].address,
+      tokenIn: tokenIn,
+      tokenOut: tokenOut,
+      amountIn: SWAP_AMOUNT,
+      minAmountOut: tokenOut === ETH_ADDRESS ? MIN_ETH_AMOUNT_OUT : MIN_AMOUNT_OUT
+    });
     
-    // Create leaf hash for this intent
-    const leafHash = createIntent(
-      user,
-      tokenIn,
-      tokenOut,
-      amountIn,
-      minAmountOut,
-      timestamp
-    );
-    
-    leafHashes.push(leafHash);
-    
-    console.log(`Intent ${i+1} created for ${user}:`);
+    console.log(`Created swap request for ${testWallets[i].address}:`);
     console.log(`  TokenIn: ${tokenIn === ETH_ADDRESS ? "ETH" : tokenIn}`);
     console.log(`  TokenOut: ${tokenOut === ETH_ADDRESS ? "ETH" : tokenOut}`);
-    console.log(`  AmountIn: ${ethers.formatEther(amountIn)}`);
-    console.log(`  MinAmountOut: ${ethers.formatEther(minAmountOut)}`);
-    console.log(`  Hash: ${leafHash}`);
+    console.log(`  AmountIn: ${ethers.formatEther(SWAP_AMOUNT)}`);
+    console.log(`  MinAmountOut: ${tokenOut === ETH_ADDRESS ? 
+                  ethers.formatEther(MIN_ETH_AMOUNT_OUT) : 
+                  ethers.formatEther(MIN_AMOUNT_OUT)}`);
   }
-
-  // Create Merkle tree with all leaves
-  const tree = new MerkleTree(leafHashes, keccak256, { sortPairs: true });
-  const root = tree.getHexRoot();
-
-  // Get proof for each leaf
-  const proofs = leafHashes.map(leaf => tree.getHexProof(leaf));
-
-  // Print Merkle tree info
-  console.log("\nMerkle Tree Information:");
-  console.log(`Number of intents: ${leafHashes.length}`);
-  console.log(`Merkle Root: ${root}`);
-
-  console.log("\nValues for commitBatchIntents:");
-  console.log(`intentRoot: "${root}"`);
-  console.log(`batchSize: ${leafHashes.length}`);
-
-  // Format the values for batchSwap
-  console.log("\nValues for batchSwap:");
-  console.log(`Users: ${JSON.stringify(intentUsers)}`);
-  console.log(`TokensIn: ${JSON.stringify(intentTokensIn)}`);
-  console.log(`TokensOut: ${JSON.stringify(intentTokensOut)}`);
-  console.log(`AmountsIn: ${JSON.stringify(intentAmountsIn)}`);
-  console.log(`MinAmountsOut: ${JSON.stringify(intentMinAmountsOut)}`);
-
-  // Print proofs for each user
-  for (let i = 0; i < intentUsers.length; i++) {
-    console.log(`\nProofs for user ${i+1} (${intentUsers[i]}):`);
-    console.log(JSON.stringify(proofs[i]));
-  }
-
-  // Format the complete batch parameters for the contract
-  const batchParams = [
-    intentUsers,
-    intentTokensIn,
-    intentTokensOut,
-    intentAmountsIn,
-    intentMinAmountsOut,
-    proofs
-  ];
-
-  // Continue with the batch commitment
-  console.log("\n=== Step 5: Committing batch intents ===");
+  
   try {
-    // Get the latest nonce again, just to be safe
-    currentNonce = await provider.getTransactionCount(deployerWallet.address);
-    console.log(`Current nonce before batch commitment: ${currentNonce}`);
-    
-    // Commit the batch intents
-    const commitTx = await multiTokenAmm.connect(deployerWallet).commitBatchIntents(
-      root,
-      leafHashes.length,
-      { nonce: currentNonce++ }
-    );
-    
-    await commitTx.wait();
-    console.log(`✅ Batch commitment successful: ${commitTx.hash}`);
-    
-    const batchId = await multiTokenAmm.batchCounter();
-    console.log(`Batch committed with ID: ${batchId}`);
-    
-    console.log("\n=== Step 6: Fast-forwarding time to simulate delay ===");
-    // Fast forward 30 seconds (past the 20 second delay)
-    await provider.send("evm_increaseTime", [30]);
-    await provider.send("evm_mine", []);
-    console.log("Fast-forwarded 30 seconds");
-    
-    console.log("\n=== Step 7: Executing batch swaps ===");
-    
-    // Execute the batch swap with all parameters
-    const executeTx = await multiTokenAmm.connect(deployerWallet).batchSwap(
-      batchId,
-      batchParams,
-      { nonce: currentNonce++ }
-    );
-    
-    const receiptExecute = await executeTx.wait();
-    console.log(`✅ Batch execution successful: ${executeTx.hash}`);
+    // Call the batchSwap function as the sequencer (deployer)
+    console.log("\nExecuting batch swap for round 1...");
+    const batchTx = await multiTokenAmm.connect(deployerWallet).batchSwap(swapRequestsRound1);
+    const receipt = await batchTx.wait();
+    console.log(`✅ Batch swap (round 1) executed: ${batchTx.hash}`);
     
     // Extract events from receipt
-    const swapEvents = receiptExecute.logs
+    const swapEvents = receipt.logs
       .filter(log => {
         try {
           const parsed = multiTokenAmm.interface.parseLog({
@@ -555,11 +486,11 @@ async function main() {
       })
       .filter(Boolean);
     
-    console.log(`Successfully executed ${swapEvents.length} swaps`);
+    console.log(`Successfully executed ${swapEvents.length} swaps in round 1`);
     
     // Print details about the swaps
     if (swapEvents.length > 0) {
-      console.log("\nSwap details:");
+      console.log("\nSwap details (round 1):");
       for (let i = 0; i < swapEvents.length; i++) {
         const event = swapEvents[i];
         console.log(`Swap ${i+1}:`);
@@ -571,44 +502,152 @@ async function main() {
       }
     }
     
-    try {
-      // Extract batch stats
-      const batchResult = await multiTokenAmm.batchResults(batchId);
-      console.log(`\nBatch ${batchId} stats: Total=${batchResult.totalProcessed}, Success=${batchResult.successCount}, Failed=${batchResult.failedCount}`);
-      
-      // Display any failures
-      if (batchResult.failedCount > 0) {
-        console.log("\nFailure details:");
-        for (let i = 0; i < leafHashes.length; i++) {
-          try {
-            // Use getSwapFailureReason function to check if this swap failed
-            const reason = await multiTokenAmm.getSwapFailureReason(batchId, i);
-            if (reason > 0) {
-              // Translate reason code to a descriptive message
-              let reasonMsg = "Unknown error";
-              if (reason === 1) reasonMsg = "INVALID_PROOF";
-              if (reason === 2) reasonMsg = "INSUFFICIENT_BALANCE";
-              if (reason === 3) reasonMsg = "SLIPPAGE_TOO_HIGH";
-              if (reason === 4) reasonMsg = "POOL_NOT_FOUND";
-              if (reason === 5) reasonMsg = "OTHER";
-              
-              console.log(`Swap ${i+1} failed with reason: ${reasonMsg} (${reason})`);
-              
-              // Print the failed intent details for debugging
-              console.log(`  User: ${intentUsers[i]}`);
-              console.log(`  TokenIn: ${intentTokensIn[i]}`);
-              console.log(`  TokenOut: ${intentTokensOut[i]}`);
-              console.log(`  AmountIn: ${ethers.formatEther(intentAmountsIn[i])}`);
-              console.log(`  MinAmountOut: ${ethers.formatEther(intentMinAmountsOut[i])}`);
-            }
-          } catch (error) {
-            console.log(`Error getting failure reason for swap ${i+1}: ${error.message}`);
+    // Get batch statistics
+    const batchId = await multiTokenAmm.batchCounter();
+    const [total, success, failed] = await multiTokenAmm.getBatchStats(batchId);
+    console.log(`\nBatch ${batchId} stats (round 1): Total=${total}, Success=${success}, Failed=${failed}`);
+    
+    // Check for failures
+    if (failed > 0) {
+      console.log("\nFailure details (round 1):");
+      for (let i = 0; i < swapRequestsRound1.length; i++) {
+        try {
+          const reason = await multiTokenAmm.getSwapFailureReason(batchId, i);
+          if (reason > 0) {
+            // Translate reason code to a descriptive message
+            let reasonMsg = "Unknown error";
+            if (reason === 1) reasonMsg = "INSUFFICIENT_BALANCE";
+            if (reason === 2) reasonMsg = "SLIPPAGE_TOO_HIGH";
+            if (reason === 3) reasonMsg = "POOL_NOT_FOUND";
+            if (reason === 4) reasonMsg = "OTHER";
+            
+            console.log(`Swap ${i+1} failed with reason: ${reasonMsg} (${reason})`);
+            
+            // Print the failed request details for debugging
+            const req = swapRequestsRound1[i];
+            console.log(`  User: ${req.user}`);
+            console.log(`  TokenIn: ${req.tokenIn}`);
+            console.log(`  TokenOut: ${req.tokenOut}`);
+            console.log(`  AmountIn: ${ethers.formatEther(req.amountIn)}`);
+            console.log(`  MinAmountOut: ${ethers.formatEther(req.minAmountOut)}`);
           }
+        } catch (error) {
+          console.log(`Error getting failure reason for swap ${i+1}: ${error.message}`);
         }
       }
-    } catch (error) {
-      console.log("Error getting batch results:", error.message);
     }
+    
+    // Wait a bit before round 2
+    console.log("\nWaiting 2 seconds before round 2...");
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    console.log("\n=== Step 5: Executing Batch Swaps - Round 2 ===");
+    
+    // Create SwapRequest objects for round 2
+    const swapRequestsRound2 = [];
+    for (let i = 0; i < testWallets.length; i++) {
+      const { tokenIn, tokenOut } = swapCombinationsRound2[i];
+      
+      // For ETH -> Token swaps, we need different values
+      let actualMinAmountOut = tokenOut === ETH_ADDRESS ? MIN_ETH_AMOUNT_OUT : MIN_AMOUNT_OUT;
+      
+      swapRequestsRound2.push({
+        user: testWallets[i].address,
+        tokenIn: tokenIn,
+        tokenOut: tokenOut,
+        amountIn: SWAP_AMOUNT,
+        minAmountOut: actualMinAmountOut
+      });
+      
+      console.log(`Created swap request for ${testWallets[i].address} (round 2):`);
+      console.log(`  TokenIn: ${tokenIn === ETH_ADDRESS ? "ETH" : tokenIn}`);
+      console.log(`  TokenOut: ${tokenOut === ETH_ADDRESS ? "ETH" : tokenOut}`);
+      console.log(`  AmountIn: ${ethers.formatEther(SWAP_AMOUNT)}`);
+      console.log(`  MinAmountOut: ${ethers.formatEther(actualMinAmountOut)}`);
+    }
+    
+    // Call the batchSwap function again for round 2
+    console.log("\nExecuting batch swap for round 2...");
+    const batchTx2 = await multiTokenAmm.connect(deployerWallet).batchSwap(swapRequestsRound2);
+    const receipt2 = await batchTx2.wait();
+    console.log(`✅ Batch swap (round 2) executed: ${batchTx2.hash}`);
+    
+    // Extract events from receipt for round 2
+    const swapEvents2 = receipt2.logs
+      .filter(log => {
+        try {
+          const parsed = multiTokenAmm.interface.parseLog({
+            topics: [...log.topics],
+            data: log.data
+          });
+          return parsed.name === 'Swap';
+        } catch (e) {
+          return false;
+        }
+      })
+      .map(log => {
+        try {
+          return multiTokenAmm.interface.parseLog({
+            topics: [...log.topics],
+            data: log.data
+          }).args;
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    
+    console.log(`Successfully executed ${swapEvents2.length} swaps in round 2`);
+    
+    // Print details about the swaps for round 2
+    if (swapEvents2.length > 0) {
+      console.log("\nSwap details (round 2):");
+      for (let i = 0; i < swapEvents2.length; i++) {
+        const event = swapEvents2[i];
+        console.log(`Swap ${i+1}:`);
+        console.log(`  User: ${event.user}`);
+        console.log(`  TokenIn: ${event.tokenIn === ETH_ADDRESS ? "ETH" : event.tokenIn}`);
+        console.log(`  TokenOut: ${event.tokenOut === ETH_ADDRESS ? "ETH" : event.tokenOut}`);
+        console.log(`  AmountIn: ${ethers.formatEther(event.amountIn)}`);
+        console.log(`  AmountOut: ${ethers.formatEther(event.amountOut)}`);
+      }
+    }
+    
+    // Get batch statistics for round 2
+    const batchId2 = await multiTokenAmm.batchCounter();
+    const [total2, success2, failed2] = await multiTokenAmm.getBatchStats(batchId2);
+    console.log(`\nBatch ${batchId2} stats (round 2): Total=${total2}, Success=${success2}, Failed=${failed2}`);
+    
+    // Check for failures in round 2
+    if (failed2 > 0) {
+      console.log("\nFailure details (round 2):");
+      for (let i = 0; i < swapRequestsRound2.length; i++) {
+        try {
+          const reason = await multiTokenAmm.getSwapFailureReason(batchId2, i);
+          if (reason > 0) {
+            // Translate reason code to a descriptive message
+            let reasonMsg = "Unknown error";
+            if (reason === 1) reasonMsg = "INSUFFICIENT_BALANCE";
+            if (reason === 2) reasonMsg = "SLIPPAGE_TOO_HIGH";
+            if (reason === 3) reasonMsg = "POOL_NOT_FOUND";
+            if (reason === 4) reasonMsg = "OTHER";
+            
+            console.log(`Swap ${i+1} failed with reason: ${reasonMsg} (${reason})`);
+            
+            // Print the failed request details for debugging
+            const req = swapRequestsRound2[i];
+            console.log(`  User: ${req.user}`);
+            console.log(`  TokenIn: ${req.tokenIn}`);
+            console.log(`  TokenOut: ${req.tokenOut}`);
+            console.log(`  AmountIn: ${ethers.formatEther(req.amountIn)}`);
+            console.log(`  MinAmountOut: ${ethers.formatEther(req.minAmountOut)}`);
+          }
+        } catch (error) {
+          console.log(`Error getting failure reason for swap ${i+1} in round 2: ${error.message}`);
+        }
+      }
+    }
+    
   } catch (error) {
     console.error(`❌ Error in batch operations:`, error);
   }
