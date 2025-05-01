@@ -24,8 +24,8 @@ const AnimatedBackground = () => {
 
     useEffect(() => {
         const generatedTokens = [];
-        const screenWidth = window.innerWidth;
-        const screenHeight = window.innerHeight;
+        // const screenWidth = window.innerWidth;
+        // const screenHeight = window.innerHeight;
 
         for (let i = 0; i < NUM_TOKENS; i++) {
             const size = random(MIN_SIZE, MAX_SIZE);

@@ -4,6 +4,8 @@ import { getAmmContract, provider } from './ammClient';
 import AnimatedBackground       from './AnimatedBackground';
 import './App.css';
 
+
+
 export default function App() {
   const networks = [
     { name: 'Sepolia Testnet', chainId: '0xaa36a7' },
@@ -23,7 +25,6 @@ export default function App() {
   const [closing,       setClosing]       = useState(false);
 
 
-  // Connect MetaMask
   const connectMetaMask = async () => {
     if (!window.ethereum) {
       setStatus('🔴 Please install MetaMask');
@@ -41,7 +42,6 @@ export default function App() {
     }
   };
 
-  // Show wallet choice
   const handleConnectClick = () => {
     if (!account) {
       setShowModal(true);
@@ -54,11 +54,10 @@ export default function App() {
     setClosing(true);
     setTimeout(() => {
       setShowModal(false);
-    }, 400); // matches CSS animation duration
+    }, 400); 
   };
 
 
-  // Swap direction
   const swapDirection = () => {
     setFromNet(prev => {
       setToNet(prev);
@@ -70,7 +69,6 @@ export default function App() {
     });
   };
 
-  // Perform the “swap”
   const handleSwap = async () => {
     if (!account) {
       handleConnectClick();
@@ -92,7 +90,6 @@ export default function App() {
     }
   };
 
-  // Fetch balance after connecting
   useEffect(() => {
     if (!account) return;
     (async () => {
