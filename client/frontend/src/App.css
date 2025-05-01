@@ -1,13 +1,11 @@
 /* App.css */
 
-/* 1) Full-screen reset */
 html, body {
   margin: 0;
   padding: 0;
   height: 100%;
 }
 
-/* 2) Full-screen flex wrapper */
 .app-wrapper {
   width: 100vw;
   height: 100vh;
@@ -18,7 +16,6 @@ html, body {
   overflow: hidden;
 }
 
-/* 3) Logo at top */
 .swap-logo {
   position: absolute;
   top: 2rem;
@@ -37,10 +34,9 @@ html, body {
   font-size: 1.5rem;
 }
 
-/* 4) Card base styling */
 .card {
   width: 100%;
-  max-width: 700px;            /* bump this up as needed */
+  max-width: 700px;            
   padding: 32px;
   background: rgba(15,18,40,0.85);
   backdrop-filter: blur(12px);
@@ -51,14 +47,12 @@ html, body {
   font-family: sans-serif;
 }
 
-/* 5) Swap-card layout */
 .swap-card {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;                 /* vertical spacing between panel, amount, button */
+  gap: 1.5rem;                 
 }
 
-/* 6) From/To panel wrapper */
 .swap-panel {
   width: 95%;
   padding: 1rem;
@@ -67,36 +61,32 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.5rem;                 /* small vertical gap between sections */
+  gap: 0.5rem;                
 }
 
-/* 7) Each label+selectors group */
 .swap-section {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;                /* space between swap-label and swap-row */
+  gap: 0.25rem;                
   width: 100%;
 }
 
-/* 8) The “From” / “To” text above each row */
 .swap-label {
   font-size: 0.875rem;
   color: #bbb;
-  padding-left: 0.5rem;        /* align with the selects below */
+  padding-left: 0.5rem;        
   text-align: left;
 }
 
-/* 9) The row of two selects */
 .swap-row {
   display: flex;
-  gap: 0.5rem;                 /* gap between the two dropdowns */
+  gap: 0.5rem;                 
   width: 100%;
 }
 
-/* 10) Select wrapper for custom arrow */
 .select-wrapper {
   position: relative;
-  flex: 1;                     /* share row equally */
+  flex: 1;                     
 }
 .select-wrapper::after {
   content: '▼';
@@ -108,7 +98,6 @@ html, body {
   pointer-events: none;
 }
 
-/* 11) Asset dropdown sizing */
 .asset-selector {
   width: 100%;
   padding: 0.75rem 1rem;
@@ -121,9 +110,8 @@ html, body {
   text-align: left;
 }
 
-/* 12) Swap toggle button */
 .swap-toggle {
-  align-self: center;          /* center in swap-panel */
+  align-self: center;          
   display: inline-flex;
   width: 2.5rem;
   height: 2.5rem;
@@ -141,33 +129,27 @@ html, body {
   background: rgba(255,255,255,0.2);
 }
 
-/* 13) Amount row */
-/* ─── Amount section ─── */
 
-/* 1) Turn .amount-row into a vertical stack, just like .swap-section */
-.amount-row {
+=.amount-row {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;        /* small gap between label and controls */
+  gap: 0.25rem;        
   width: 100%;
 }
 
-/* 2) Style the label above the controls like .swap-label */
 .amount-row > label {
   font-size: 0.875rem;
   color: #bbb;
   text-align: left;
-  padding-left: 0.5rem;  /* lines up with the selects/input below */
+  padding-left: 0.5rem;  
 }
 
-/* 3) Keep the controls themselves side-by-side */
 .amount-controls {
   display: flex;
-  gap: 0.5rem;         /* space between input and MAX button */
+  gap: 0.5rem;        
   width: 100%;
 }
 
-/* 4) Make the input fill the remaining space */
 .amount-input {
   flex: 1;
   padding: 0.75rem 1rem;
@@ -180,7 +162,6 @@ html, body {
   text-align: left;
 }
 
-/* 5) Tweak MAX to match the new compact styling */
 .btn-minmax {
   background: rgba(255,255,255,0.1);
   border: none;
@@ -194,7 +175,6 @@ html, body {
   cursor: pointer;
 }
 
-/* 15) Primary & outline buttons */
 .btn-primary {
   width: 100%;
   padding: 1rem;
@@ -214,7 +194,6 @@ html, body {
   cursor: pointer;
 }
 
-/* 16) Status text */
 .status-text {
   font-size: 0.85rem;
   color: #aaa;
@@ -223,45 +202,43 @@ html, body {
 
 .amount-panel {
   width: 95%;
-  padding: 1rem;                  /* same padding as swap-panel */
+  padding: 1rem;                  
   background: rgba(20,24,50,0.8);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;                    /* space between label and controls */
+  gap: 0.5rem;                    
 }
 
-/* reuse .swap-label for the heading above */
 .amount-panel .swap-label {
-  padding-left: 0.5rem;           /* aligns with the input below */
+  padding-left: 0.5rem;           
 }
 
-/* lay out the input + MAX button in a row */
 .amount-controls {
   display: flex;
   gap: 0.5rem;
 }
 
-/* ensure your .swap-row rule flexes the input and button nicely */
+
 .amount-controls.swap-row {
   align-items: m;
 }
 
-/*  — make the card a positioning container — */
+
 .card.swap-card {
   position: relative;
   overflow: hidden;
 }
 
-/*  — the sliding modal inside the card — */
+
 .card-modal {
   position: absolute;
   left: 1rem;
   right: 1rem;
   top: calc(100% - 60px);
-  background: rgba(20,24,50,0.95);
+  background: #14183A;
   border-radius: 12px;
-  padding: 1rem;
+  padding: 3rem;
   box-shadow: 0 4px 24px rgba(0,0,0,0.5);
   display: flex;
   flex-direction: column;
