@@ -538,9 +538,76 @@ async function main() {
     }
     
     // Wait a bit before round 2
-    console.log("\nWaiting 2 seconds before round 2...");
+    console.log("\nWaiting 2 seconds before preparing for round 2...");
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
+
+    console.log("\n=== Step 4.5: Preparing for Round 2 - Additional Deposits ===");
+    // Deposit tokens/ETH for round 2 swaps
+    for (let i = 0; i < testWallets.length; i++) {
+      console.log(`Preparing wallet ${i+1} (${testWallets[i].address}) for round 2`);
+
+      // Get what token this wallet needs for round 2
+      const { tokenIn } = swapCombinationsRound2[i];
+      
+      if (tokenIn === ETH_ADDRESS) {
+        console.log(`Depositing ${ethers.formatEther(DEPOSIT_AMOUNT)} ETH for ${testWallets[i].address} (for round 2)`);
+        try {
+          // Deposit ETH to AMM
+          const depositTx = await multiTokenAmm.connect(testWallets[i]).depositETH({ value: DEPOSIT_AMOUNT });
+          await depositTx.wait();
+          console.log(`✅ ETH Deposit successful: tx ${depositTx.hash}`);
+          
+          // Verify the deposit
+          const balance = await multiTokenAmm.getETHBalance(testWallets[i].address);
+          console.log(`Wallet ${i+1} now has ${ethers.formatEther(balance)} ETH in the AMM`);
+        } catch (error) {
+          console.error(`❌ Error in ETH deposit:`, error.message);
+        }
+      } else {
+        // For token deposits, first mint tokens to the user
+        let tokenContract;
+        let tokenSymbol;
+        
+        if (tokenIn === tromerTokenAddress) {
+          tokenContract = tromerToken;
+          tokenSymbol = "TRM";
+        } else if (tokenIn === leTokenAddress) {
+          tokenContract = leToken;
+          tokenSymbol = "LET";
+        } else if (tokenIn === simpleTokenAddress) {
+          tokenContract = simpleToken;
+          tokenSymbol = "SMP";
+        }
+        
+        console.log(`Minting ${ethers.formatEther(MINT_AMOUNT)} ${tokenSymbol} tokens to ${testWallets[i].address} for round 2`);
+        
+        try {
+          // Mint tokens to user
+          const mintTx = await tokenContract.connect(deployerWallet).mint(testWallets[i].address, MINT_AMOUNT);
+          await mintTx.wait();
+          console.log(`✅ Minted ${tokenSymbol} tokens to wallet ${i+1}: tx ${mintTx.hash}`);
+          
+          // Approve AMM to use tokens
+          const approveTx = await tokenContract.connect(testWallets[i]).approve(multiTokenAmmAddress, MINT_AMOUNT);
+          await approveTx.wait();
+          console.log(`✅ Approved ${tokenSymbol} tokens for AMM: tx ${approveTx.hash}`);
+          
+          // Deposit tokens to AMM
+          const depositTx = await multiTokenAmm.connect(testWallets[i]).depositToken(tokenIn, DEPOSIT_AMOUNT);
+          await depositTx.wait();
+          console.log(`✅ Deposited ${tokenSymbol} tokens to AMM: tx ${depositTx.hash}`);
+          
+          // Verify the deposit
+          const balance = await multiTokenAmm.getTokenBalance(testWallets[i].address, tokenIn);
+          console.log(`Wallet ${i+1} now has ${ethers.formatEther(balance)} ${tokenSymbol} in the AMM`);
+        } catch (error) {
+          console.error(`❌ Error preparing tokens for round 2:`, error.message);
+        }
+      }
+      
+      console.log(`Wallet ${i+1} preparation for round 2 complete`);
+    }
+
     console.log("\n=== Step 5: Executing Batch Swaps - Round 2 ===");
     
     // Create SwapRequest objects for round 2
