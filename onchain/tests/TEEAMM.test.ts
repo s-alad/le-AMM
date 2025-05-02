@@ -205,7 +205,7 @@ describe("TEEAMM", () => {
         expect(reserve3_1).to.equal(t2_2);
     });
 
-    it("should swap tokens successfully", async () => {
+    it("should swap token to token successfully", async () => {
         // Get wallet client to use as sequencer
         const [wc] = await hre.viem.getWalletClients();
         const pc = await hre.viem.getPublicClient();
@@ -257,10 +257,10 @@ describe("TEEAMM", () => {
             user: wc.account.address,
             tokenIn: Token1.address,
             tokenOut: Token2.address,
-            amountIn: swapAmount,
-            minOut: 0n, // No minimum for test simplicity
+            amountIn: BigInt(swapAmount),
+            minOut: 0n,
             directPayout: false,
-            nonce: 0n // First swap
+            nonce: 0n
         };
         
         // Execute swap as sequencer
@@ -285,5 +285,179 @@ describe("TEEAMM", () => {
         // Verify token1 was spent and token2 was received
         expect(finalToken1Balance).to.equal(initialToken1Balance - swapAmount);
         expect(finalToken2Balance > initialToken2Balance).to.be.true;
+    });
+    
+    it("should swap token to ETH successfully", async () => {
+        // Get wallet client to use as sequencer
+        const [wc] = await hre.viem.getWalletClients();
+        const pc = await hre.viem.getPublicClient();
+        
+        // Deploy contracts with our address as sequencer
+        const { TEEAMM, TEEWETH } = await deployContracts({
+            sequencer: wc.account.address
+        });
+        
+        // Deploy test token
+        const Token = await hre.viem.deployContract("TEETOK", ["Token", "TKN"]);
+        
+        // Mint tokens
+        const mintAmount = parseEther("1000");
+        await Token.write.mint([wc.account.address, mintAmount]);
+        
+        // Deposit ETH to create liquidity
+        const ethLiquidityAmount = parseEther("100");
+        await TEEAMM.write.depositETH({ value: ethLiquidityAmount });
+        
+        // Approve tokens for TEEAMM
+        await Token.write.approve([TEEAMM.address, mintAmount]);
+        
+        // Need to deposit and approve WETH 
+        await TEEWETH.write.deposit({ value: ethLiquidityAmount });
+        await TEEWETH.write.approve([TEEAMM.address, ethLiquidityAmount]);
+        
+        // Add liquidity for Token/WETH pair
+        const tokenLiquidityAmount = parseEther("100");
+        const feeBP = 30; // 0.3%
+        
+        const tx = await TEEAMM.write.addLiquidity([
+            Token.address,
+            TEEWETH.address,
+            tokenLiquidityAmount,
+            ethLiquidityAmount,
+            feeBP
+        ]);
+        await pc.waitForTransactionReceipt({ hash: tx });
+        
+        // Deposit tokens to be swapped
+        const swapAmount = parseEther("10");
+        await TEEAMM.write.deposit([Token.address, swapAmount]);
+        
+        // Check initial balances
+        const initialTokenBalance = await TEEAMM.read.balances([
+            wc.account.address, Token.address
+        ]) as bigint;
+        const initialWethBalance = await TEEAMM.read.balances([
+            wc.account.address, TEEWETH.address
+        ]) as bigint;
+        
+        // Set up swap intent
+        const swapIntent = {
+            user: wc.account.address,
+            tokenIn: Token.address,
+            tokenOut: TEEWETH.address,
+            amountIn: BigInt(swapAmount),
+            minOut: 0n,
+            directPayout: false,
+            nonce: 0n
+        };
+        
+        // Execute swap as sequencer
+        await TEEAMM.write.batchSwap([[{
+            user: swapIntent.user,
+            tokenIn: swapIntent.tokenIn,
+            tokenOut: swapIntent.tokenOut,
+            amountIn: BigInt(swapAmount),
+            minOut: 0n,
+            directPayout: swapIntent.directPayout,
+            nonce: 0n
+        }]]);
+        
+        // Check final balances
+        const finalTokenBalance = await TEEAMM.read.balances([
+            wc.account.address, Token.address
+        ]) as bigint;
+        const finalWethBalance = await TEEAMM.read.balances([
+            wc.account.address, TEEWETH.address
+        ]) as bigint;
+        
+        // Verify token was spent and WETH was received
+        expect(finalTokenBalance).to.equal(initialTokenBalance - swapAmount);
+        expect(finalWethBalance > initialWethBalance).to.be.true;
+    });
+    
+    it("should swap ETH to token successfully", async () => {
+        // Get wallet client to use as sequencer
+        const [wc] = await hre.viem.getWalletClients();
+        const pc = await hre.viem.getPublicClient();
+        
+        // Deploy contracts with our address as sequencer
+        const { TEEAMM, TEEWETH } = await deployContracts({
+            sequencer: wc.account.address
+        });
+        
+        // Deploy test token
+        const Token = await hre.viem.deployContract("TEETOK", ["Token", "TKN"]);
+        
+        // Mint tokens
+        const mintAmount = parseEther("1000");
+        await Token.write.mint([wc.account.address, mintAmount]);
+        
+        // Deposit ETH for liquidity and for swap
+        const ethLiquidityAmount = parseEther("100");
+        const swapAmount = parseEther("10");
+        const totalEthAmount = ethLiquidityAmount + swapAmount;
+        await TEEAMM.write.depositETH({ value: totalEthAmount });
+        
+        // Approve token for TEEAMM
+        await Token.write.approve([TEEAMM.address, mintAmount]);
+        
+        // Need to deposit and approve WETH
+        await TEEWETH.write.deposit({ value: ethLiquidityAmount });
+        await TEEWETH.write.approve([TEEAMM.address, ethLiquidityAmount]);
+        
+        // Add liquidity for Token/WETH pair
+        const tokenLiquidityAmount = parseEther("100");
+        const feeBP = 30; // 0.3%
+        
+        const tx = await TEEAMM.write.addLiquidity([
+            Token.address,
+            TEEWETH.address,
+            tokenLiquidityAmount,
+            ethLiquidityAmount,
+            feeBP
+        ]);
+        await pc.waitForTransactionReceipt({ hash: tx });
+        
+        // Check initial balances
+        const initialTokenBalance = await TEEAMM.read.balances([
+            wc.account.address, Token.address
+        ]) as bigint;
+        const initialWethBalance = await TEEAMM.read.balances([
+            wc.account.address, TEEWETH.address
+        ]) as bigint;
+        
+        // Set up swap intent
+        const swapIntent = {
+            user: wc.account.address,
+            tokenIn: TEEWETH.address,
+            tokenOut: Token.address,
+            amountIn: BigInt(swapAmount),
+            minOut: 0n,
+            directPayout: false,
+            nonce: 0n
+        };
+        
+        // Execute swap as sequencer
+        await TEEAMM.write.batchSwap([[{
+            user: swapIntent.user,
+            tokenIn: swapIntent.tokenIn,
+            tokenOut: swapIntent.tokenOut,
+            amountIn: BigInt(swapAmount),
+            minOut: 0n,
+            directPayout: swapIntent.directPayout,
+            nonce: 0n
+        }]]);
+        
+        // Check final balances
+        const finalTokenBalance = await TEEAMM.read.balances([
+            wc.account.address, Token.address
+        ]) as bigint;
+        const finalWethBalance = await TEEAMM.read.balances([
+            wc.account.address, TEEWETH.address
+        ]) as bigint;
+        
+        // Verify WETH was spent and token was received
+        expect(finalWethBalance).to.equal(initialWethBalance - swapAmount);
+        expect(finalTokenBalance > initialTokenBalance).to.be.true;
     });
 });
