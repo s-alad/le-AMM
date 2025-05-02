@@ -1,0 +1,92 @@
+import { expect } from "chai";
+import hre from "hardhat";
+import { parseEther } from "viem";
+
+describe("TEEAMM", () => {
+
+    const deployContracts = async () => {
+        try {
+            const MWETH = await hre.viem.deployContract("MWETH", []);
+            console.log("MWETH deployed at:", MWETH.address);
+
+            const TEAMM = await hre.viem.deployContract("TEEAMM", [
+                "0x46E1b359A285Ec33D7c77398125247b97d35C366", // SEQUENCER
+                "0x46E1b359A285Ec33D7c77398125247b97d35C366", // GUARDIAN
+                "0x46E1b359A285Ec33D7c77398125247b97d35C366", // TREASURY
+                MWETH.address,            // WETH - using our deployed MockWETH
+                50,                       // PROTOCOL BP
+            ]);
+            return { TEAMM, MWETH };
+        } catch (error) {
+            console.error("deploy error:", error); throw error;
+        }
+    };
+
+    it("should deploy the contract successfully", async () => {
+        const { TEAMM, MWETH } = await deployContracts();
+        expect(TEAMM.address).to.not.equal(null);
+        expect(MWETH.address).to.not.equal(null);
+        console.log("ADDRESS: ", TEAMM.address)
+        console.log("MWETH: ", MWETH.address)
+    });
+
+    it("should set the sequencer address correctly", async () => {
+        const { TEAMM } = await deployContracts();
+        expect(await TEAMM.read.getSequencer()).
+            to.equal("0x46E1b359A285Ec33D7c77398125247b97d35C366");
+    });
+
+    it("should initialize nonce to zero", async () => {
+        const { TEAMM } = await deployContracts();
+        expect(await TEAMM.read.getMyNonce()).to.equal(0n);
+    });
+
+    it("should deposit ETH successfully", async () => {
+        const { TEAMM, MWETH } = await deployContracts();
+
+        const deposit = parseEther("100");
+        const [wc] = await hre.viem.getWalletClients();
+
+        const initial = await TEAMM.read.balances([
+            wc.account.address,
+            MWETH.address
+        ]) as bigint;
+
+        const tx = await TEAMM.write.depositETH([], {
+            value: deposit,
+        });
+        
+        const receipt = await (await hre.viem.getPublicClient()).waitForTransactionReceipt({ hash: tx });
+        expect(receipt.status).to.equal("success");
+
+        const balance = await TEAMM.read.balances([
+            wc.account.address,
+            MWETH.address
+        ]) as bigint;
+
+        expect(balance).to.equal(initial + deposit);
+    });
+
+    it("should withdraw ETH successfully", async () => {
+        const { TEAMM, MWETH } = await deployContracts();
+        const [wc] = await hre.viem.getWalletClients();
+        const pc = await hre.viem.getPublicClient();
+        const amount = parseEther("100");
+        
+        // Deposit ETH
+        const depositTx = await TEAMM.write.depositETH([], { value: amount });
+        await pc.waitForTransactionReceipt({ hash: depositTx });
+        
+        // Verify deposit balance
+        const balanceAfterDeposit = await TEAMM.read.balances([wc.account.address, MWETH.address]) as bigint;
+        expect(balanceAfterDeposit).to.equal(amount);
+        
+        // Withdraw ETH
+        const withdrawTx = await TEAMM.write.withdrawETH([amount]);
+        await pc.waitForTransactionReceipt({ hash: withdrawTx });
+        
+        // Verify balance is zero after withdrawal
+        const finalBalance = await TEAMM.read.balances([wc.account.address, MWETH.address]) as bigint;
+        expect(finalBalance).to.equal(0n);
+    });
+});

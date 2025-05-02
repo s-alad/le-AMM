@@ -1,8 +1,7 @@
 TEE.pem
-<<<<<<< HEAD
 node_modules
 .DS_Store
-=======
-
 .env
->>>>>>> d24fc32 (chore: update gitignore for front-end assets)
+priv.hex
+pub.hex
+address.txt
