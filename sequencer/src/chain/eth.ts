@@ -1,13 +1,15 @@
 import 'dotenv/config';
 
 import { createPublicClient, createWalletClient, http } from 'viem'
-import { baseSepolia } from 'viem/chains'
+import { baseSepolia, sepolia } from 'viem/chains'
 import { privateKeyToAccount } from 'viem/accounts'
 import { parseAbi } from 'viem'
 
+const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL || 'https://rpc.sepolia.dev';
+
 const pc = createPublicClient({ 
-  chain: baseSepolia, 
-  transport: http('https://sepolia.base.org'), 
+  chain: sepolia, 
+  transport: http(SEPOLIA_RPC_URL), 
 }) 
 
 const pk = process.env.SEQUENCER_PRIV_HEX
@@ -20,8 +22,8 @@ const account = privateKeyToAccount(`0x${pk}`)
 
 const wc = createWalletClient({
   account,
-  chain: baseSepolia,
-  transport: http('https://sepolia.base.org')
+  chain: sepolia,
+  transport: http(SEPOLIA_RPC_URL)
 })
 
 // ABI for MultiTokenAMM contract
@@ -131,6 +133,15 @@ async function getWalletETHBalance(address: `0x${string}` = account.address) {
   }
 }
 
+async function sendEthToWallet(amount: number, to: string) {
+  const hash = await wc.sendTransaction({
+    account: account,
+    to: (to.startsWith('0x') ? to : `0x${to}`) as `0x${string}`,
+    value: BigInt(amount * 1e18)
+  })
+  console.log('ETH send transaction hash:', hash)
+}
+
 // Example usage
 async function main() {
   try {
@@ -138,22 +149,25 @@ async function main() {
     console.log('Contract address:', ca);
     
     // First check if the contract exists
-    await checkContractExists();
+    // await checkContractExists();
     
     // Get wallet ETH balance (not in contract)
     await getWalletETHBalance();
+
+    // Send ETH to wallet
+    await sendEthToWallet(0.5, "0x660F96F3fb5695b62157473836C501B6f3Ee4cE7");
     
     // Check if we're the sequencer
-    await isSequencer();
+    // await isSequencer();
 
     // Get our own ETH balance in the contract
-    await getETHBalance(account.address);
+    // await getETHBalance(account.address);
 
     // Deposit ETH to the contract
-    await depositETH(BigInt(0.000025 * 1e18));
+    // await depositETH(BigInt(0.000025 * 1e18));
 
     // Get our own ETH balance in the contract
-    await getETHBalance(account.address);
+    // await getETHBalance(account.address);
     
     console.log('Script execution completed');
   } catch (error) {
