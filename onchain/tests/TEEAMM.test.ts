@@ -52,7 +52,7 @@ describe("TEEAMM", () => {
             TEEWETH.address
         ]) as bigint;
 
-        const tx = await TEEAMM.write.depositETH([], {
+        const tx = await TEEAMM.write.depositETH({ 
             value: deposit,
         });
         
@@ -74,7 +74,7 @@ describe("TEEAMM", () => {
         const amount = parseEther("100");
         
         // Deposit ETH
-        const depositTx = await TEEAMM.write.depositETH([], { value: amount });
+        const depositTx = await TEEAMM.write.depositETH({ value: amount });
         await pc.waitForTransactionReceipt({ hash: depositTx });
         
         // Verify deposit balance
@@ -106,7 +106,7 @@ describe("TEEAMM", () => {
         
         // Get TEEWETH by directly depositing into TEEWETH
         const ethAmount = parseEther("100");
-        await TEEWETH.write.deposit([], { value: ethAmount });
+        await TEEWETH.write.deposit({ value: ethAmount });
         
         // Approve tokens for TEEAMM contract
         await Token1.write.approve([TEEAMM.address, mintAmount]);
