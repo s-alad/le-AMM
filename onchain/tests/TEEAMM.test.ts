@@ -14,6 +14,12 @@ describe("TEEAMM", () => {
         protocolBP?: number;
     }
 
+    const getClients = async () => {
+        const [wc] = await hre.viem.getWalletClients();
+        const pc = await hre.viem.getPublicClient();
+        return { wc, pc };
+    };
+
     const deployContracts = async (options: DeployOptions = {}) => {
         try {
             const TEEWETH = await hre.viem.deployContract("TEEWETH", []);
@@ -61,7 +67,7 @@ describe("TEEAMM", () => {
         const { TEEAMM, TEEWETH } = await deployContracts();
 
         const deposit = parseEther("100");
-        const [wc] = await hre.viem.getWalletClients();
+        const { wc } = await getClients();
 
         const initial = await TEEAMM.read.balances([
             wc.account.address,
@@ -85,8 +91,7 @@ describe("TEEAMM", () => {
 
     it("should withdraw ETH successfully", async () => {
         const { TEEAMM, TEEWETH } = await deployContracts();
-        const [wc] = await hre.viem.getWalletClients();
-        const pc = await hre.viem.getPublicClient();
+        const { wc, pc } = await getClients();
         const amount = parseEther("100");
 
         // Deposit ETH
@@ -112,8 +117,7 @@ describe("TEEAMM", () => {
         const tk1 = await hre.viem.deployContract("TEETOK", ["Token1", "TKN1"]);
         const tk2 = await hre.viem.deployContract("TEETOK", ["Token2", "TKN2"]);
 
-        const [wc] = await hre.viem.getWalletClients();
-        const pc = await hre.viem.getPublicClient();
+        const { wc, pc } = await getClients();
 
         // Mint some test tokens to our wallet
         const mintAmount = parseEther("1000");
@@ -206,8 +210,7 @@ describe("TEEAMM", () => {
     });
 
     it("should swap token to token successfully", async () => {
-        const [wc] = await hre.viem.getWalletClients();
-        const pc = await hre.viem.getPublicClient();
+        const { wc, pc } = await getClients();
 
         const { TEEAMM, TEEWETH } = await deployContracts({
             sequencer: wc.account.address,
@@ -295,8 +298,7 @@ describe("TEEAMM", () => {
 
     it("should swap token to ETH successfully", async () => {
         // Get wallet client to use as sequencer
-        const [wc] = await hre.viem.getWalletClients();
-        const pc = await hre.viem.getPublicClient();
+        const { wc, pc } = await getClients();
 
         // Deploy contracts with our address as sequencer
         const { TEEAMM, TEEWETH } = await deployContracts({
@@ -393,8 +395,7 @@ describe("TEEAMM", () => {
 
     it("should swap ETH to token successfully", async () => {
         // Get wallet client to use as sequencer
-        const [wc] = await hre.viem.getWalletClients();
-        const pc = await hre.viem.getPublicClient();
+        const { wc, pc } = await getClients();
 
         // Deploy contracts with our address as sequencer
         const { TEEAMM, TEEWETH } = await deployContracts({
@@ -489,8 +490,7 @@ describe("TEEAMM", () => {
 
     it("should remove liquidity successfully", async () => {
         // Get wallet client and public client
-        const [wc] = await hre.viem.getWalletClients();
-        const pc = await hre.viem.getPublicClient();
+        const { wc, pc } = await getClients();
 
         // Deploy contracts
         const { TEEAMM, TEEWETH } = await deployContracts();
@@ -593,8 +593,7 @@ describe("TEEAMM", () => {
 
     it("should send tokens directly to wallet with directPayout=true", async () => {
         // Get wallet client to use as sequencer
-        const [wc] = await hre.viem.getWalletClients();
-        const pc = await hre.viem.getPublicClient();
+        const { wc, pc } = await getClients();
 
         // Deploy contracts with our address as sequencer
         const { TEEAMM, TEEWETH } = await deployContracts({
@@ -682,8 +681,7 @@ describe("TEEAMM", () => {
 
     it("should correctly handle batch swaps with mixed success and failure", async () => {
         // Get wallet client to use as sequencer
-        const [wc] = await hre.viem.getWalletClients();
-        const pc = await hre.viem.getPublicClient();
+        const { wc, pc } = await getClients();
 
         // Deploy contracts with our address as sequencer
         const { TEEAMM, TEEWETH } = await deployContracts({
@@ -917,8 +915,7 @@ describe("TEEAMM", () => {
 
     it("should enforce swap intent deadlines correctly", async () => {
         // Get wallet client to use as sequencer
-        const [wc] = await hre.viem.getWalletClients();
-        const pc = await hre.viem.getPublicClient();
+        const { wc, pc } = await getClients();
 
         // Deploy contracts with our address as sequencer
         const { TEEAMM, TEEWETH } = await deployContracts({
@@ -1039,8 +1036,7 @@ describe("TEEAMM", () => {
 
     it("should correctly handle multi-pool interactions", async () => {
         // Get clients
-        const [wc] = await hre.viem.getWalletClients();
-        const pc = await hre.viem.getPublicClient();
+        const { wc, pc } = await getClients();
 
         // Deploy contracts
         const { TEEAMM, TEEWETH } = await deployContracts();
