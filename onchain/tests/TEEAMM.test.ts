@@ -486,4 +486,108 @@ describe("TEEAMM", () => {
         expect(finalWethBalance).to.equal(initialWethBalance - swapAmount);
         expect(finalTokenBalance > initialTokenBalance).to.be.true;
     });
+
+    it("should remove liquidity successfully", async () => {
+        // Get wallet client and public client
+        const [wc] = await hre.viem.getWalletClients();
+        const pc = await hre.viem.getPublicClient();
+        
+        // Deploy contracts
+        const { TEEAMM, TEEWETH } = await deployContracts();
+        
+        // Deploy tokens for testing
+        const tk1 = await hre.viem.deployContract("TEETOK", ["TokenA", "TKA"]);
+        const tk2 = await hre.viem.deployContract("TEETOK", ["TokenB", "TKB"]);
+        
+        // Mint tokens to our wallet
+        const mintAmount = 1000n;
+        await tk1.write.mint([wc.account.address, mintAmount]);
+        await tk2.write.mint([wc.account.address, mintAmount]);
+        
+        // Approve tokens for TEEAMM
+        await tk1.write.approve([TEEAMM.address, mintAmount]);
+        await tk2.write.approve([TEEAMM.address, mintAmount]);
+
+        // Log balances
+        const genesisTk1Balance = await tk1.read.balanceOf([wc.account.address]) as bigint;
+        const genesisTk2Balance = await tk2.read.balanceOf([wc.account.address]) as bigint;
+        console.log("Genesis wallet balances:", genesisTk1Balance, genesisTk2Balance);
+        
+        // Add liquidity - both tokens with 100 units each
+        const addAmount = 100n;
+        const feeBP = 5; // 0.05%
+        
+        const addTx = await TEEAMM.write.addLiquidity([
+            tk1.address,
+            tk2.address,
+            addAmount,
+            addAmount,
+            feeBP
+        ]);
+        await pc.waitForTransactionReceipt({ hash: addTx });
+        
+        // Check initial reserves
+        const [initReserve0, initReserve1] = await TEEAMM.read.getReserves([
+            tk1.address,
+            tk2.address
+        ]) as [bigint, bigint];
+        
+        // Check LP position
+        const initialLpPosition = await TEEAMM.read.getMyLiquidity([
+            tk1.address, 
+            tk2.address
+        ]) as bigint;
+        
+        // Check initial wallet token balances
+        const initialTk1Balance = await tk1.read.balanceOf([wc.account.address]) as bigint;
+        const initialTk2Balance = await tk2.read.balanceOf([wc.account.address]) as bigint;
+        
+        console.log("Initial reserves:", initReserve0, initReserve1);
+        console.log("Initial LP position:", initialLpPosition);
+        console.log("Initial wallet balances:", initialTk1Balance, initialTk2Balance);
+        
+        // Now remove ALL liquidity (100% of LP tokens)
+        const removeShare = initialLpPosition;
+        const minAmountOut = 90n; // Expect to get at least 90 tokens back (from 100)
+        
+        const removeTx = await TEEAMM.write.removeLiquidity([
+            tk1.address,
+            tk2.address,
+            removeShare,
+            minAmountOut,
+            minAmountOut
+        ]);
+        await pc.waitForTransactionReceipt({ hash: removeTx });
+        
+        // Check updated reserves
+        const [finalReserve0, finalReserve1] = await TEEAMM.read.getReserves([
+            tk1.address,
+            tk2.address
+        ]) as [bigint, bigint];
+        
+        // Check LP position after removal
+        const finalLpPosition = await TEEAMM.read.getMyLiquidity([
+            tk1.address, 
+            tk2.address
+        ]) as bigint;
+        
+        // Check final wallet token balances
+        const finalTk1Balance = await tk1.read.balanceOf([wc.account.address]) as bigint;
+        const finalTk2Balance = await tk2.read.balanceOf([wc.account.address]) as bigint;
+        
+        console.log("Final reserves:", finalReserve0, finalReserve1);
+        console.log("Final LP position:", finalLpPosition);
+        console.log("Final wallet balances:", finalTk1Balance, finalTk2Balance);
+        
+        // Verify LP tokens were fully burned
+        expect(finalLpPosition).to.equal(0n);
+        
+        // Verify reserves are now zero
+        expect(finalReserve0).to.equal(0n);
+        expect(finalReserve1).to.equal(0n);
+        
+        // Verify tokens were returned to the wallet (all 100 of each)
+        expect(finalTk1Balance).to.equal(initialTk1Balance + addAmount);
+        expect(finalTk2Balance).to.equal(initialTk2Balance + addAmount);
+    });
 });
