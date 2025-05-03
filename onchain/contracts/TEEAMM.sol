@@ -26,7 +26,6 @@ contract TEEAMM is ReentrancyGuard {
     IWETH  public immutable WETH;
     uint16 public protocolFeeBP;
 
-    event SequencerRotated(address indexed newSequencer);
     event ProtocolFeeUpdated(uint16 newBP);
     
     /* ─── Vault balances & nonces ───────────────────────────────────────── */
@@ -39,6 +38,12 @@ contract TEEAMM is ReentrancyGuard {
     event WithdrawAll(address indexed user, IERC20 indexed token, uint256 amount);
     event WithdrawETH(address indexed user, uint256 amount);
 
+    /* ─── Pool Enumeration ───────────────────────────────────────────────── */
+    bytes32[] public poolList;
+    mapping(bytes32 => bool) public poolExists;
+    
+    event PoolCreated(IERC20 indexed token0, IERC20 indexed token1, bytes32 poolKey);
+
     /* ─── Liquidity Pools ───────────────────────────────────────────────── */
     struct Pool {
         IERC20  token0;
@@ -49,7 +54,7 @@ contract TEEAMM is ReentrancyGuard {
         uint256 totalShares;
         mapping(address => uint256) shares;
     }
-    mapping(IERC20 => mapping(IERC20 => Pool)) private pools;
+    mapping(bytes32 => Pool) private pools;
 
     event LiquidityAdded(
         address indexed lp,
@@ -123,6 +128,15 @@ contract TEEAMM is ReentrancyGuard {
     modifier onlyGuardian()  { require(msg.sender == guardian,  "!guardian");  _; }
     modifier onlyTreasury()  { require(msg.sender == treasury,  "!treasury");  _; }
 
+    /* ===== Helper functions ===== */
+    function _getPoolKey(IERC20 tokenA, IERC20 tokenB) internal pure returns (bytes32 poolKey, IERC20 token0, IERC20 token1) {
+        (token0, token1) = address(tokenA) < address(tokenB) 
+            ? (tokenA, tokenB) 
+            : (tokenB, tokenA);
+        poolKey = keccak256(abi.encodePacked(address(token0), address(token1)));
+        return (poolKey, token0, token1);
+    }
+
     /* =====================================================================
      *  DEPOSIT & WITHDRAW (ERC-20 & ETH)
      * ===================================================================== */
@@ -180,17 +194,24 @@ contract TEEAMM is ReentrancyGuard {
         require(feeBP <= MAX_PROTOCOL_BP, "fee too high");
         require(amountA > 0 && amountB > 0, "zero amount");
 
-        (IERC20 t0, IERC20 t1, uint256 a0, uint256 a1) =
-            address(tokenA) < address(tokenB)
-                ? (tokenA, tokenB, amountA, amountB)
-                : (tokenB, tokenA, amountB, amountA);
-
-        Pool storage p = pools[t0][t1];
+        (bytes32 poolKey, IERC20 t0, IERC20 t1) = _getPoolKey(tokenA, tokenB);
+        uint256 a0 = address(tokenA) < address(tokenB) ? amountA : amountB;
+        uint256 a1 = address(tokenA) < address(tokenB) ? amountB : amountA;
+        
+        Pool storage p = pools[poolKey];
+        
         if (p.totalShares == 0) {
             p.token0      = t0;
             p.token1      = t1;
             p.feeBP       = feeBP;
             shares        = a0;
+            
+            // Register the pool for enumeration
+            if (!poolExists[poolKey]) {
+                poolExists[poolKey] = true;
+                poolList.push(poolKey);
+                emit PoolCreated(t0, t1, poolKey);
+            }
         } else {
             require(p.feeBP == feeBP, "fee mismatch");
             require(uint256(p.reserve0) * a1 == uint256(p.reserve1) * a0, "unbalanced");
@@ -215,24 +236,49 @@ contract TEEAMM is ReentrancyGuard {
     ) external nonReentrant returns (uint256 amountA, uint256 amountB) {
         require(share > 0, "zero share");
         
-        (IERC20 t0, IERC20 t1) =
-            address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
-        Pool storage p = pools[t0][t1];
-        uint256 userShares = p.shares[msg.sender];
-        require(userShares >= share, "insufficient shares");
+        // Get pool key and call internal implementation
+        (bytes32 poolKey, , ) = _getPoolKey(tokenA, tokenB);
+        return _removeLiquidityInternal(poolKey, tokenA, tokenB, share, minA, minB);
+    }
+    
+    function _removeLiquidityInternal(
+        bytes32 poolKey,
+        IERC20 tokenA,
+        IERC20 tokenB,
+        uint256 share,
+        uint256 minA,
+        uint256 minB
+    ) private returns (uint256 amountA, uint256 amountB) {
+        Pool storage p = pools[poolKey];
+        require(p.shares[msg.sender] >= share, "insufficient shares");
+        require(tokenA != tokenB, "identical tokens");
+        // Calculate amounts based on share proportion
+        uint256 amount0 = uint256(p.reserve0) * share / p.totalShares;
+        uint256 amount1 = uint256(p.reserve1) * share / p.totalShares;
         
-        amountA = uint256(p.reserve0) * share / p.totalShares;
-        amountB = uint256(p.reserve1) * share / p.totalShares;
+        // Map to user's token order
+        if (address(tokenA) == address(p.token0)) {
+            amountA = amount0;
+            amountB = amount1;
+        } else {
+            amountA = amount1;
+            amountB = amount0;
+        }
+        
+        // Check min amounts
         require(amountA >= minA && amountB >= minB, "slippage");
         
-        p.reserve0    -= uint128(amountA);
-        p.reserve1    -= uint128(amountB);
+        // Update pool state
+        p.reserve0 -= uint128(amount0);
+        p.reserve1 -= uint128(amount1);
         p.totalShares -= share;
-        p.shares[msg.sender] = userShares - share;
+        p.shares[msg.sender] -= share;
         
-        t0.safeTransfer(msg.sender, amountA);
-        t1.safeTransfer(msg.sender, amountB);
-        emit LiquidityRemoved(msg.sender, t0, t1, amountA, amountB, share);
+        // Transfer tokens
+        p.token0.safeTransfer(msg.sender, amount0);
+        p.token1.safeTransfer(msg.sender, amount1);
+        
+        emit LiquidityRemoved(msg.sender, p.token0, p.token1, amount0, amount1, share);
     }
 
     /* =====================================================================
@@ -297,20 +343,18 @@ contract TEEAMM is ReentrancyGuard {
         uint128 dx,
         uint128 minOut
     ) private returns (bool, uint256 dy) {
-        (IERC20 t0, IERC20 t1, bool in0) =
-            address(inT) < address(outT) ? (inT, outT, true) : (outT, inT, false);
-        Pool storage p = pools[t0][t1];
+        (bytes32 poolKey, IERC20 t0, ) = _getPoolKey(inT, outT);
+        Pool storage p = pools[poolKey];
         
         if (p.reserve0 == 0 || p.reserve1 == 0) return (false, 0);
         
+        bool in0 = address(inT) == address(t0);
         (uint128 rIn, uint128 rOut) = in0 ? (p.reserve0, p.reserve1) : (p.reserve1, p.reserve0);
         
-        // Improved precision handling
+        // Calculate fee-adjusted amount
         uint256 dxFee = uint256(dx) * (BP_BASE - p.feeBP);
         uint256 numerator = uint256(rOut) * dxFee;
         uint256 denominator = (uint256(rIn) * BP_BASE) + dxFee;
-        
-        // Use higher precision for intermediate calculation
         dy = numerator / denominator;
         
         if (dy < minOut) return (false, 0);
@@ -328,10 +372,14 @@ contract TEEAMM is ReentrancyGuard {
 
     /* ===== View functions ===== */
     function getReserves(IERC20 tokenA, IERC20 tokenB) external view returns (uint128, uint128) {
-        (IERC20 t0, IERC20 t1) =
-            address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
-        Pool storage p = pools[t0][t1];
+        (bytes32 poolKey, , ) = _getPoolKey(tokenA, tokenB);
+        Pool storage p = pools[poolKey];
         return (p.reserve0, p.reserve1);
+    }
+    
+    function getMyLiquidity(IERC20 tokenA, IERC20 tokenB) external view returns (uint256) {
+        (bytes32 poolKey, , ) = _getPoolKey(tokenA, tokenB);
+        return pools[poolKey].shares[msg.sender];
     }
 
     function getMyBalance(IERC20 token) external view returns (uint256) {
@@ -344,6 +392,43 @@ contract TEEAMM is ReentrancyGuard {
 
     function getSequencer() external view returns (address) {
         return sequencer;
+    }
+    
+    /* ===== Pool enumeration functions ===== */
+    function getPoolCount() external view returns (uint256) {
+        return poolList.length;
+    }
+    
+    function getPoolKeyAtIndex(uint256 index) external view returns (bytes32) {
+        require(index < poolList.length, "index out of bounds");
+        return poolList[index];
+    }
+    
+    function getPoolByKey(bytes32 poolKey) external view returns (
+        IERC20 token0, 
+        IERC20 token1, 
+        uint128 reserve0, 
+        uint128 reserve1,
+        uint16 feeBP,
+        uint256 totalShares
+    ) {
+        require(poolExists[poolKey], "pool doesn't exist");
+        Pool storage p = pools[poolKey];
+        return (p.token0, p.token1, p.reserve0, p.reserve1, p.feeBP, p.totalShares);
+    }
+    
+    function getPoolAtIndex(uint256 index) external view returns (
+        IERC20 token0, 
+        IERC20 token1, 
+        uint128 reserve0, 
+        uint128 reserve1,
+        uint16 feeBP,
+        uint256 totalShares
+    ) {
+        require(index < poolList.length, "index out of bounds");
+        bytes32 poolKey = poolList[index];
+        Pool storage p = pools[poolKey];
+        return (p.token0, p.token1, p.reserve0, p.reserve1, p.feeBP, p.totalShares);
     }
     
     /* =====================================================================
@@ -367,12 +452,6 @@ contract TEEAMM is ReentrancyGuard {
         balances[treasury][token] = 0;
         token.safeTransfer(treasury, bal);
         emit RevenueClaimed(treasury, token, bal);
-    }
-    
-    function rotateSequencer(address newSeq) external onlyGuardian {
-        require(newSeq != address(0), "zero address");
-        sequencer = newSeq;
-        emit SequencerRotated(newSeq);
     }
     
     function setProtocolFeeBP(uint16 newBP) external onlyGuardian {
