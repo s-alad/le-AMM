@@ -679,4 +679,239 @@ describe("TEEAMM", () => {
         
         console.log("Tokens received in wallet:", finalWalletBalance - initialWalletBalance);
     });
+
+    it("should correctly handle batch swaps with mixed success and failure", async () => {
+        // Get wallet client to use as sequencer
+        const [wc] = await hre.viem.getWalletClients();
+        const pc = await hre.viem.getPublicClient();
+        
+        // Deploy contracts with our address as sequencer
+        const { TEEAMM, TEEWETH } = await deployContracts({
+            sequencer: wc.account.address
+        });
+        
+        // Deploy test tokens
+        const tk1 = await hre.viem.deployContract("TEETOK", ["Token1", "TK1"]);
+        const tk2 = await hre.viem.deployContract("TEETOK", ["Token2", "TK2"]);
+        const tk3 = await hre.viem.deployContract("TEETOK", ["Token3", "TK3"]);
+        
+        // Mint tokens
+        const mintAmount = parseEther("10000");
+        await tk1.write.mint([wc.account.address, mintAmount]);
+        await tk2.write.mint([wc.account.address, mintAmount]);
+        await tk3.write.mint([wc.account.address, mintAmount]);
+        
+        // Approve tokens for TEEAMM
+        await tk1.write.approve([TEEAMM.address, mintAmount]);
+        await tk2.write.approve([TEEAMM.address, mintAmount]);
+        await tk3.write.approve([TEEAMM.address, mintAmount]);
+        
+        // Create two liquidity pools: tk1-tk2 and tk2-tk3
+        const liquidityAmount = parseEther("1000");
+        const feeBP = 5; // 0.05%
+        
+        await TEEAMM.write.addLiquidity([
+            tk1.address, tk2.address, liquidityAmount, liquidityAmount, feeBP
+        ]);
+        
+        await TEEAMM.write.addLiquidity([
+            tk2.address, tk3.address, liquidityAmount, liquidityAmount, feeBP
+        ]);
+        
+        // IMPORTANT: Only deposit EXACTLY enough for our expected successful swaps
+        // This way we can be sure no unexpected swaps succeed
+        await TEEAMM.write.deposit([tk1.address, parseEther("200")]); // For 2 swaps of 100 each
+        await TEEAMM.write.deposit([tk2.address, parseEther("50")]); // Only for one potential swap
+        
+        // Get initial balances and nonce
+        const initialTk1Balance = await TEEAMM.read.balances([wc.account.address, tk1.address]) as bigint;
+        const initialTk2Balance = await TEEAMM.read.balances([wc.account.address, tk2.address]) as bigint;
+        const initialTk3Balance = await TEEAMM.read.balances([wc.account.address, tk3.address]) as bigint;
+        const initialNonce = await TEEAMM.read.getMyNonce() as bigint;
+        
+        console.log("Initial balances:", {
+            tk1: initialTk1Balance,
+            tk2: initialTk2Balance,
+            tk3: initialTk3Balance,
+            nonce: initialNonce
+        });
+        
+        const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+        
+        // Create a batch with precisely controlled expected outcomes
+        const swaps = [
+            // Swap 0: SUCCESS - tk1 -> tk2 with valid nonce and sufficient balance
+            {
+                user: wc.account.address,
+                tokenIn: tk1.address,
+                tokenOut: tk2.address,
+                amountIn: parseEther("100"),
+                minOut: 0n,
+                directPayout: false,
+                nonce: initialNonce,
+                deadline
+            },
+            // Swap 1: SUCCESS - tk1 -> tk2 with next nonce and sufficient balance
+            {
+                user: wc.account.address,
+                tokenIn: tk1.address,
+                tokenOut: tk2.address,
+                amountIn: parseEther("100"),
+                minOut: 0n,
+                directPayout: false,
+                nonce: initialNonce + 1n,
+                deadline
+            },
+            // Swap 2: FAILURE - Nonce mismatch (skipping a nonce)
+            {
+                user: wc.account.address,
+                tokenIn: tk1.address,
+                tokenOut: tk2.address,
+                amountIn: parseEther("50"),
+                minOut: 0n,
+                directPayout: false,
+                nonce: initialNonce + 3n, // Wrong nonce (skipping 2)
+                deadline
+            },
+            // Swap 3: FAILURE - Insufficient balance (already used all tk1)
+            {
+                user: wc.account.address,
+                tokenIn: tk1.address,
+                tokenOut: tk2.address,
+                amountIn: parseEther("50"),  
+                minOut: 0n,
+                directPayout: false,
+                nonce: initialNonce + 2n,
+                deadline
+            },
+            // Swap 4: FAILURE - Pricing failure (impossible minOut)
+            {
+                user: wc.account.address,
+                tokenIn: tk2.address,
+                tokenOut: tk3.address,
+                amountIn: parseEther("50"),
+                minOut: parseEther("1000"), // Impossible minOut
+                directPayout: false,
+                nonce: initialNonce + 2n,
+                deadline
+            },
+        ];
+        
+        // Execute the batch swap with all intents
+        const batchTx = await TEEAMM.write.batchSwap([swaps]);
+        
+        // Get the transaction receipt
+        const receipt = await pc.waitForTransactionReceipt({ hash: batchTx });
+        
+        // Use the public client to parse logs with the contract ABI
+        const swapEvents = await pc.getContractEvents({
+            address: TEEAMM.address,
+            abi: TEEAMM.abi,
+            eventName: 'Swap',
+            fromBlock: receipt.blockNumber,
+            toBlock: receipt.blockNumber
+        });
+        
+        const failedEvents = await pc.getContractEvents({
+            address: TEEAMM.address,
+            abi: TEEAMM.abi,
+            eventName: 'SwapFailed',
+            fromBlock: receipt.blockNumber,
+            toBlock: receipt.blockNumber
+        });
+        
+        const batchEvents = await pc.getContractEvents({
+            address: TEEAMM.address,
+            abi: TEEAMM.abi,
+            eventName: 'BatchExecuted',
+            fromBlock: receipt.blockNumber,
+            toBlock: receipt.blockNumber
+        });
+        
+        // Get final balances and nonce
+        const finalTk1Balance = await TEEAMM.read.balances([wc.account.address, tk1.address]) as bigint;
+        const finalTk2Balance = await TEEAMM.read.balances([wc.account.address, tk2.address]) as bigint;
+        const finalTk3Balance = await TEEAMM.read.balances([wc.account.address, tk3.address]) as bigint;
+        const finalNonce = await TEEAMM.read.getMyNonce() as bigint;
+        
+        console.log("Final balances:", {
+            tk1: finalTk1Balance,
+            tk2: finalTk2Balance,
+            tk3: finalTk3Balance,
+            nonce: finalNonce
+        });
+        
+        console.log("Events:", {
+            swapSuccess: swapEvents.length,
+            swapFailed: failedEvents.length,
+            batchEvents: batchEvents.length
+        });
+        
+        // EXPECT EXACTLY 2 SUCCESSFUL SWAPS
+        expect(swapEvents.length).to.equal(2, "Should have exactly 2 successful swaps");
+        
+        // EXPECT EXACTLY 3 FAILED SWAPS
+        expect(failedEvents.length).to.equal(3, "Should have exactly 3 failed swaps");
+        
+        // EXPECT EXACTLY 1 BATCH EXECUTED EVENT
+        expect(batchEvents.length).to.equal(1, "Should have exactly 1 BatchExecuted event");
+        
+        // Verify the BatchExecuted event has the correct success/fail counts
+        if (batchEvents.length > 0) {
+            const batchEvent = batchEvents[0];
+            expect(batchEvent.args.successCount).to.equal(2n);
+            expect(batchEvent.args.failCount).to.equal(3n);
+        }
+        
+        // VERIFY THE EXACT SWAP NONCES & TOKENS
+
+        // First successful swap should be the first one in our array
+        expect(swapEvents[0].args.nonce).to.equal(0n);
+        expect(swapEvents[0].args.tokenIn?.toLowerCase()).to.equal(tk1.address.toLowerCase());
+        expect(swapEvents[0].args.tokenOut?.toLowerCase()).to.equal(tk2.address.toLowerCase());
+        
+        // Second successful swap should be the second one in our array
+        expect(swapEvents[1].args.nonce).to.equal(1n);
+        expect(swapEvents[1].args.tokenIn?.toLowerCase()).to.equal(tk1.address.toLowerCase());
+        expect(swapEvents[1].args.tokenOut?.toLowerCase()).to.equal(tk2.address.toLowerCase());
+        
+        
+        // Verify token1 was spent for the 2 successful swaps (200 total)
+        expect(finalTk1Balance).to.equal(0n, "All tk1 should be spent");
+        
+        // Verify token3 balance remained unchanged (all tk2->tk3 swaps failed)
+        expect(finalTk3Balance).to.equal(0n, "No tk3 should be received");
+        
+        // Verify nonce increased by 2 (for the 2 successful swaps)
+        expect(finalNonce).to.equal(initialNonce + 2n, "Nonce should increase by 2");
+        
+        // Verify the specific failure reasons if there are expected failed events
+        if (failedEvents.length >= 3) {
+            // Sort by index to match our original array order
+            const failureReasons = failedEvents
+                .map(event => ({
+                    index: Number(event.args.idx),
+                    reason: Number(event.args.reason)
+                }))
+                .sort((a, b) => a.index - b.index);
+            
+            // Enum FailureReason { NONE, NONCE_MISMATCH, INSUFFICIENT_BALANCE, PRICING_FAILED, EXPIRED }
+            const NONCE_MISMATCH = 1;
+            const INSUFFICIENT_BALANCE = 2;
+            const PRICING_FAILED = 3;
+            
+            // We expect these specific failures in this order based on our swap intents
+            // Swap 2 (index 2) - NONCE_MISMATCH
+            expect(failureReasons[0].index).to.equal(2);
+            expect(failureReasons[0].reason).to.equal(NONCE_MISMATCH);
+            
+            // Swap 3 (index 3) - INSUFFICIENT_BALANCE
+            expect(failureReasons[1].index).to.equal(3);
+            expect(failureReasons[1].reason).to.equal(INSUFFICIENT_BALANCE);
+            
+            // Swap 4 (index 4) - PRICING_FAILED
+            expect(failureReasons[2].index).to.equal(4);
+            expect(failureReasons[2].reason).to.equal(PRICING_FAILED);
+        }
+    });
 });
