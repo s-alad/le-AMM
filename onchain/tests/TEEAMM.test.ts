@@ -590,4 +590,93 @@ describe("TEEAMM", () => {
         expect(finalTk1Balance).to.equal(initialTk1Balance + addAmount);
         expect(finalTk2Balance).to.equal(initialTk2Balance + addAmount);
     });
+
+    it("should send tokens directly to wallet with directPayout=true", async () => {
+        // Get wallet client to use as sequencer
+        const [wc] = await hre.viem.getWalletClients();
+        const pc = await hre.viem.getPublicClient();
+        
+        // Deploy contracts with our address as sequencer
+        const { TEEAMM, TEEWETH } = await deployContracts({
+            sequencer: wc.account.address,
+            protocolBP: 10 // 0.1% protocol fee
+        });
+        
+        // Deploy test tokens
+        const tk1 = await hre.viem.deployContract("TEETOK", ["Token1", "TK1"]);
+        const tk2 = await hre.viem.deployContract("TEETOK", ["Token2", "TK2"]);
+        
+        // Mint tokens
+        const mintAmount = 10000n;
+        await tk1.write.mint([wc.account.address, mintAmount]);
+        await tk2.write.mint([wc.account.address, mintAmount]);
+        
+        // Approve tokens for TEEAMM
+        await tk1.write.approve([TEEAMM.address, mintAmount]);
+        await tk2.write.approve([TEEAMM.address, mintAmount]);
+        
+        // Set up pool with 1000 tokens each
+        const liquidityAmount = 1000n;
+        const feeBP = 5; // 0.05%
+        
+        const tx = await TEEAMM.write.addLiquidity([
+            tk1.address,
+            tk2.address,
+            liquidityAmount,
+            liquidityAmount,
+            feeBP
+        ]);
+        await pc.waitForTransactionReceipt({ hash: tx });
+        
+        // Deposit tokens to be swapped
+        const swapAmount = 100n;
+        await TEEAMM.write.deposit([tk1.address, swapAmount]);
+        
+        // Initial balances
+        const initialTEEAMMBalance = await TEEAMM.read.balances([
+            wc.account.address, tk1.address
+        ]) as bigint;
+        const initialWalletBalance = await tk2.read.balanceOf([wc.account.address]) as bigint;
+        const initialTEEAMMtk2Balance = await TEEAMM.read.balances([
+            wc.account.address, tk2.address
+        ]) as bigint;
+        
+        console.log("Initial TEEAMM tk1 balance:", initialTEEAMMBalance);
+        console.log("Initial wallet tk2 balance:", initialWalletBalance);
+        console.log("Initial TEEAMM tk2 balance:", initialTEEAMMtk2Balance);
+        
+        // Execute swap with directPayout=true
+        await TEEAMM.write.batchSwap([[{
+            user: wc.account.address,
+            tokenIn: tk1.address,
+            tokenOut: tk2.address,
+            amountIn: swapAmount,
+            minOut: 0n,
+            directPayout: true,
+            nonce: 0n,
+            deadline: BigInt(Math.floor(Date.now() / 1000) + 3600)
+        }]]);
+        
+        // Final balances
+        const finalTEEAMMBalance = await TEEAMM.read.balances([
+            wc.account.address, tk1.address
+        ]) as bigint;
+        const finalWalletBalance = await tk2.read.balanceOf([wc.account.address]) as bigint;
+        const finalTEEAMMtk2Balance = await TEEAMM.read.balances([
+            wc.account.address, tk2.address
+        ]) as bigint;
+        
+        console.log("Final TEEAMM tk1 balance:", finalTEEAMMBalance);
+        console.log("Final wallet tk2 balance:", finalWalletBalance);
+        console.log("Final TEEAMM tk2 balance:", finalTEEAMMtk2Balance);
+        
+        // Verify tokens were spent from TEEAMM balance
+        expect(finalTEEAMMBalance).to.equal(initialTEEAMMBalance - swapAmount);
+        
+        // Verify received tokens went directly to wallet (not TEEAMM balance)
+        expect(finalWalletBalance > initialWalletBalance).to.be.true;
+        expect(finalTEEAMMtk2Balance).to.equal(initialTEEAMMtk2Balance);
+        
+        console.log("Tokens received in wallet:", finalWalletBalance - initialWalletBalance);
+    });
 });
