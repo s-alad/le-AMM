@@ -14,6 +14,11 @@ interface IWETH {
 contract TEEAMM is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    /* ─── Constants ───────────────────────────────────────────────────────── */
+    uint16  public constant MAX_PROTOCOL_BP = 100;   // 1.00%
+    uint256 public constant MAX_BATCH       = 2000;
+    uint256 public constant BP_BASE         = 10_000; // Basis points denominator
+    
     /* ─── Roles & Config ────────────────────────────────────────────────── */
     address public immutable guardian;
     address public immutable treasury;
@@ -21,13 +26,9 @@ contract TEEAMM is ReentrancyGuard {
     IWETH  public immutable WETH;
     uint16 public protocolFeeBP;
 
-    /* ─── Fee caps & batch limits ───────────────────────────────────────── */
-    uint16  public constant MAX_PROTOCOL_BP = 100;   // 1.00%
-    uint256 public constant MAX_BATCH       = 2000;
-
     event SequencerRotated(address indexed newSequencer);
     event ProtocolFeeUpdated(uint16 newBP);
-
+    
     /* ─── Vault balances & nonces ───────────────────────────────────────── */
     mapping(address => mapping(IERC20 => uint256)) public balances;
     mapping(address => uint64)               public userNonce;
@@ -68,7 +69,7 @@ contract TEEAMM is ReentrancyGuard {
     );
 
     /* ─── Swap Intents ──────────────────────────────────────────────────── */
-    enum FailureReason { NONE, NONCE_MISMATCH, INSUFFICIENT_BALANCE, PRICING_FAILED }
+    enum FailureReason { NONE, NONCE_MISMATCH, INSUFFICIENT_BALANCE, PRICING_FAILED, EXPIRED }
     struct SwapIntent {
         address user;
         IERC20  tokenIn;
@@ -77,6 +78,7 @@ contract TEEAMM is ReentrancyGuard {
         uint128 minOut;
         bool    directPayout;
         uint64  nonce;
+        uint64  deadline;  // New field: timestamp when the swap intent expires
     }
 
     event Swap(
@@ -125,21 +127,27 @@ contract TEEAMM is ReentrancyGuard {
      *  DEPOSIT & WITHDRAW (ERC-20 & ETH)
      * ===================================================================== */
     function deposit(IERC20 token, uint256 amount) external nonReentrant {
+        require(amount > 0, "zero amount");
         token.safeTransferFrom(msg.sender, address(this), amount);
         balances[msg.sender][token] += amount;
         emit Deposit(msg.sender, token, amount);
     }
+    
     function depositETH() external payable nonReentrant {
         require(msg.value > 0, "zero ETH");
         WETH.deposit{value: msg.value}();
         balances[msg.sender][IERC20(address(WETH))] += msg.value;
         emit DepositETH(msg.sender, msg.value);
     }
+    
     function withdraw(IERC20 token, uint256 amount) external nonReentrant {
+        require(amount > 0, "zero amount");
+        require(balances[msg.sender][token] >= amount, "insufficient balance");
         balances[msg.sender][token] -= amount;
         token.safeTransfer(msg.sender, amount);
         emit Withdraw(msg.sender, token, amount);
     }
+    
     function withdrawAll(IERC20 token) external nonReentrant {
         uint256 bal = balances[msg.sender][token];
         require(bal > 0, "no balance");
@@ -147,7 +155,10 @@ contract TEEAMM is ReentrancyGuard {
         token.safeTransfer(msg.sender, bal);
         emit WithdrawAll(msg.sender, token, bal);
     }
+    
     function withdrawETH(uint256 amount) external nonReentrant {
+        require(amount > 0, "zero amount");
+        require(balances[msg.sender][IERC20(address(WETH))] >= amount, "insufficient balance");
         balances[msg.sender][IERC20(address(WETH))] -= amount;
         WETH.withdraw(amount);
         (bool ok,) = msg.sender.call{value: amount}("");
@@ -167,6 +178,7 @@ contract TEEAMM is ReentrancyGuard {
     ) external nonReentrant returns (uint256 shares) {
         require(tokenA != tokenB, "identical tokens");
         require(feeBP <= MAX_PROTOCOL_BP, "fee too high");
+        require(amountA > 0 && amountB > 0, "zero amount");
 
         (IERC20 t0, IERC20 t1, uint256 a0, uint256 a1) =
             address(tokenA) < address(tokenB)
@@ -193,6 +205,7 @@ contract TEEAMM is ReentrancyGuard {
         p.shares[msg.sender] += shares;
         emit LiquidityAdded(msg.sender, t0, t1, a0, a1, shares);
     }
+    
     function removeLiquidity(
         IERC20 tokenA,
         IERC20 tokenB,
@@ -200,18 +213,23 @@ contract TEEAMM is ReentrancyGuard {
         uint256 minA,
         uint256 minB
     ) external nonReentrant returns (uint256 amountA, uint256 amountB) {
+        require(share > 0, "zero share");
+        
         (IERC20 t0, IERC20 t1) =
             address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
         Pool storage p = pools[t0][t1];
         uint256 userShares = p.shares[msg.sender];
-        require(userShares >= share && share > 0, "invalid shares");
+        require(userShares >= share, "insufficient shares");
+        
         amountA = uint256(p.reserve0) * share / p.totalShares;
         amountB = uint256(p.reserve1) * share / p.totalShares;
         require(amountA >= minA && amountB >= minB, "slippage");
+        
         p.reserve0    -= uint128(amountA);
         p.reserve1    -= uint128(amountB);
         p.totalShares -= share;
         p.shares[msg.sender] = userShares - share;
+        
         t0.safeTransfer(msg.sender, amountA);
         t1.safeTransfer(msg.sender, amountB);
         emit LiquidityRemoved(msg.sender, t0, t1, amountA, amountB, share);
@@ -222,44 +240,53 @@ contract TEEAMM is ReentrancyGuard {
      * ===================================================================== */
     function batchSwap(SwapIntent[] calldata xs) external onlySequencer {
         require(xs.length > 0 && xs.length <= MAX_BATCH, "invalid batch");
-        uint256 ok;
-        uint256 fail;
-        for (uint256 i; i < xs.length; ) {
+        uint256 ok = 0;
+        uint256 fail = 0;
+        
+        for (uint256 i = 0; i < xs.length; i++) {
             SwapIntent calldata s = xs[i];
             FailureReason reason = FailureReason.NONE;
+            
             if (s.nonce != userNonce[s.user]) {
                 reason = FailureReason.NONCE_MISMATCH;
+            } else if (s.deadline < block.timestamp) {
+                reason = FailureReason.EXPIRED;
             } else if (balances[s.user][s.tokenIn] < s.amountIn) {
                 reason = FailureReason.INSUFFICIENT_BALANCE;
             } else {
-                uint256 protoFee = uint256(s.amountIn) * protocolFeeBP / 10_000;
+                uint256 protoFee = uint256(s.amountIn) * protocolFeeBP / BP_BASE;
                 uint128 tradeIn  = uint128(uint256(s.amountIn) - protoFee);
                 (bool okPrice, uint256 outAmt) = _quoteAndUpdate(
                     s.tokenIn, s.tokenOut, tradeIn, s.minOut
                 );
+                
                 if (!okPrice) {
                     reason = FailureReason.PRICING_FAILED;
                 } else {
                     balances[s.user][s.tokenIn]     -= s.amountIn;
                     balances[treasury][s.tokenIn]   += protoFee;
+                    
                     if (s.directPayout) {
                         s.tokenOut.safeTransfer(s.user, outAmt);
                     } else {
                         balances[s.user][s.tokenOut] += outAmt;
                     }
+                    
                     userNonce[s.user] = s.nonce + 1;
                     emit Swap(
                         s.user, s.tokenIn, s.tokenOut,
                         s.amountIn, outAmt, s.directPayout,
                         s.nonce, protoFee
                     );
-                    unchecked { ++ok; ++i; }
+                    ok++;
                     continue;
                 }
             }
+            
             emit SwapFailed(i, s.user, reason);
-            unchecked { ++fail; ++i; }
+            fail++;
         }
+        
         emit BatchExecuted(ok, fail);
     }
 
@@ -273,18 +300,33 @@ contract TEEAMM is ReentrancyGuard {
         (IERC20 t0, IERC20 t1, bool in0) =
             address(inT) < address(outT) ? (inT, outT, true) : (outT, inT, false);
         Pool storage p = pools[t0][t1];
+        
         if (p.reserve0 == 0 || p.reserve1 == 0) return (false, 0);
+        
         (uint128 rIn, uint128 rOut) = in0 ? (p.reserve0, p.reserve1) : (p.reserve1, p.reserve0);
-        uint256 dxFee = uint256(dx) * (10_000 - p.feeBP);
-        dy = uint256(rOut) * dxFee / (uint256(rIn) * 10_000 + dxFee);
+        
+        // Improved precision handling
+        uint256 dxFee = uint256(dx) * (BP_BASE - p.feeBP);
+        uint256 numerator = uint256(rOut) * dxFee;
+        uint256 denominator = (uint256(rIn) * BP_BASE) + dxFee;
+        
+        // Use higher precision for intermediate calculation
+        dy = numerator / denominator;
+        
         if (dy < minOut) return (false, 0);
-        if (in0) { p.reserve0 += dx; p.reserve1 -= uint128(dy); }
-        else     { p.reserve0 -= uint128(dy); p.reserve1 += dx; }
+        
+        if (in0) { 
+            p.reserve0 += dx; 
+            p.reserve1 -= uint128(dy); 
+        } else { 
+            p.reserve0 -= uint128(dy); 
+            p.reserve1 += dx; 
+        }
+        
         return (true, dy);
     }
 
     /* ===== View functions ===== */
-
     function getReserves(IERC20 tokenA, IERC20 tokenB) external view returns (uint128, uint128) {
         (IERC20 t0, IERC20 t1) =
             address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
@@ -311,10 +353,12 @@ contract TEEAMM is ReentrancyGuard {
         external onlyTreasury nonReentrant
     {
         require(amount > 0, "zero amount");
+        require(balances[treasury][token] >= amount, "insufficient balance");
         balances[treasury][token] -= amount;
         token.safeTransfer(treasury, amount);
         emit RevenueClaimed(treasury, token, amount);
     }
+    
     function claimAllRevenue(IERC20 token)
         external onlyTreasury nonReentrant
     {
@@ -324,18 +368,13 @@ contract TEEAMM is ReentrancyGuard {
         token.safeTransfer(treasury, bal);
         emit RevenueClaimed(treasury, token, bal);
     }
-    function guardianWithdraw(address user, IERC20 token)
-        external onlyGuardian nonReentrant
-    {
-        uint256 bal = balances[user][token];
-        balances[user][token] = 0;
-        token.safeTransfer(user, bal);
-    }
+    
     function rotateSequencer(address newSeq) external onlyGuardian {
         require(newSeq != address(0), "zero address");
         sequencer = newSeq;
         emit SequencerRotated(newSeq);
     }
+    
     function setProtocolFeeBP(uint16 newBP) external onlyGuardian {
         require(newBP <= MAX_PROTOCOL_BP, "feeBP too high");
         protocolFeeBP = newBP;
