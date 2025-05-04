@@ -8,7 +8,6 @@ import { VsockServer, VsockSocket } from 'node-vsock';
 import crypto from 'crypto';
 import { getPublicKey } from "@noble/secp256k1";
 import { pubToAddress } from "./cryptography/decryption";
-import { getAttestationDoc, open } from 'aws-nitro-enclaves-nsm-node';
 
 console.log("Sequencer starting...")
 
@@ -48,16 +47,6 @@ async function main() {
     });
 
     socket.on('attest', () => {
-      let fd = open();
-      // https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html#doc-def
-      let attestDoc = getAttestationDoc(
-        fd,
-        null,
-        Buffer.from(crypto.randomBytes(32)),
-        Buffer.from(sequencerPubHex.substring(2), 'hex')
-      )
-      console.log("attestation doc:", attestDoc);
-      socket.writeTextSync(attestDoc.toString('base64'));
     })
   });
 
