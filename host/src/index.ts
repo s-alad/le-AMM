@@ -84,6 +84,14 @@ app.get("/info", (_req, res) => {
 });
 
 app.post(
+    "/attest",
+    asyncHandler(async (req, res) => {
+        // forward to sequencer + reply
+        return null;
+    }
+));
+
+app.post(
     "/swap",
     asyncHandler(async (req, res) => {
         const envelope: EncryptedEnvelope = req.body;
