@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import TokenABI from '../abi/Token.json';  // Import the full ABI
+import { provider } from '../ammClient';
 
-// Simple ERC20 ABI with just the functions we need
-const ERC20_ABI = [
-  "function allowance(address owner, address spender) external view returns (uint256)",
-  "function approve(address spender, uint256 amount) external returns (bool)"
+const MINIMAL_ERC20_ABI = [
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)"
 ];
 
 export function TokenApproval({ tokenAddress, spenderAddress, amountNeeded, onApprovalComplete }) {
@@ -13,17 +13,16 @@ export function TokenApproval({ tokenAddress, spenderAddress, amountNeeded, onAp
   
   // Check if approval is needed
   async function checkApproval() {
-    if (!window.ethereum || !tokenAddress || !spenderAddress) return;
+    if (!window.ethereum || !tokenAddress || !spenderAddress || !provider) return;
     
     try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
+      const signer = await provider.getSigner();
       const userAddress = await signer.getAddress();
       
-      const tokenContract = new ethers.Contract(tokenAddress, TokenABI, provider);
+      const tokenContract = new ethers.Contract(tokenAddress, MINIMAL_ERC20_ABI, provider);
       const allowance = await tokenContract.allowance(userAddress, spenderAddress);
       
-      if (allowance.lt(amountNeeded)) {
+      if (allowance < amountNeeded) {
         setApprovalStatus('needed');
       } else {
         setApprovalStatus('complete');
@@ -37,19 +36,17 @@ export function TokenApproval({ tokenAddress, spenderAddress, amountNeeded, onAp
   
   // Request approval
   async function requestApproval() {
-    if (!window.ethereum || !tokenAddress || !spenderAddress) return;
+    if (!window.ethereum || !tokenAddress || !spenderAddress || !provider) return;
     
     setApprovalStatus('pending');
     try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
+      const signer = await provider.getSigner();
+      const tokenContract = new ethers.Contract(tokenAddress, MINIMAL_ERC20_ABI, signer);
       
-      const tokenContract = new ethers.Contract(tokenAddress, TokenABI, signer);
-      
-      // Approve a very large amount (effectively unlimited)
+      // Use ethers v6 syntax which doesn't need overrides object
       const tx = await tokenContract.approve(
-        spenderAddress, 
-        ethers.constants.MaxUint256
+        spenderAddress,
+        ethers.MaxUint256 // Approve unlimited amount
       );
       
       await tx.wait();
