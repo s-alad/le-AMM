@@ -489,3 +489,84 @@ html, body {
   font-size: 0.8rem;
   color: #aaa;
 }
+
+/* Mint Button Styles */
+.mint-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 20px;
+}
+
+.mint-btn {
+  font-size: 0.9rem;
+  padding: 8px 16px;
+}
+
+.mint-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.mint-amount-input {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #fff;
+  width: 100px;
+}
+
+.mint-message {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  color: #aaa;
+}
+
+.btn-text {
+  background: none;
+  border: none;
+  color: #aaa;
+  padding: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.btn-text:hover {
+  color: #fff;
+}
+
+/* Separator line */
+.separator {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 16px 0;
+  width: 100%;
+}
+
+/* Container for the mint button at bottom of swap card */
+.mint-button-container {
+  margin-top: 4px;
+}
+
+/* Style the mint button to be less prominent than the swap button */
+.mint-button-container .mint-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.85rem;
+  padding: 8px 14px;
+}
+
+.mint-button-container .mint-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+/* Adjust the mint input group to fit the card better */
+.mint-button-container .mint-input-group {
+  width: 100%;
+  justify-content: center;
+}
