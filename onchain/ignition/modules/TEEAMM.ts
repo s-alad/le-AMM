@@ -6,14 +6,16 @@ import { parseEther } from "viem";
 import hre from "hardhat";
 import assert from "assert";
 
+const SEQUENCER_ADDRESS = "0xF3c3a9917f532f244453204FB1FD98C913f05061";
+
 export default buildModule("TEEAMMModule", (m) => {
 
   const TEEWETH = m.contract("TEEWETH", []);
 
   const _TEEAMM = m.contract("TEEAMM", [
-    "0x46E1b359A285Ec33D7c77398125247b97d35C366", // SEQUENCER
-    "0x46E1b359A285Ec33D7c77398125247b97d35C366", // GUARDIAN
-    "0x46E1b359A285Ec33D7c77398125247b97d35C366", // TREASURY
+    SEQUENCER_ADDRESS, // SEQUENCER
+    SEQUENCER_ADDRESS, // GUARDIAN
+    SEQUENCER_ADDRESS, // TREASURY
     TEEWETH,
     50, // PROTOCOL BP
   ]);

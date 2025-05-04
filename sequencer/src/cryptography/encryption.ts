@@ -8,7 +8,7 @@ import { EncryptedEnvelope } from './decryption';
 import { cleanHex, SwapRequest } from './constants';
 
 // Put your sequencer PUBLIC key here (the 0x04… string from derive.ts)
-const sequencerPubHex = '0435cf3e6fd7e065d9cbe4b3cb4787937c6cc9a6053010c89e650c18fd9fdc2ec6f55b72400c345072111f906b6dd5416932429ad3354f6aa0a6ff2300476dcb01';
+const sequencerPubHex = '';
 /** Returns an envelope ready to POST to the sequencer. */
 export async function encryptForSequencer(
   swap: SwapRequest

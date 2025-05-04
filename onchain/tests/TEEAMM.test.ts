@@ -5,7 +5,7 @@ import { Address } from "viem";
 
 describe("TEEAMM", () => {
 
-    const DEFAULT_ADDRESS = "0x46E1b359A285Ec33D7c77398125247b97d35C366";
+    const SEQUENCER_ADDRESS = "0xF3c3a9917f532f244453204FB1FD98C913f05061";
 
     interface DeployOptions {
         sequencer?: Address;
@@ -25,9 +25,9 @@ describe("TEEAMM", () => {
             const TEEWETH = await hre.viem.deployContract("TEEWETH", []);
 
             const {
-                sequencer = DEFAULT_ADDRESS,
-                guardian = DEFAULT_ADDRESS,
-                treasury = DEFAULT_ADDRESS,
+                sequencer = SEQUENCER_ADDRESS,
+                guardian = SEQUENCER_ADDRESS,
+                treasury = SEQUENCER_ADDRESS,
                 protocolBP = 10 // 0.1%
             } = options;
 
