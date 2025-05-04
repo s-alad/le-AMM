@@ -1,10 +1,10 @@
-// Sequencer vsock server
+// Sequencer Express server
 // ---------------------
-// Exposes the sequencer's public key over vsock for the host to connect to
-// Responds to "GET_PUBLIC_KEY" messages with the sequencer's public key
+// Exposes the sequencer's public key over HTTP for clients to connect to
+// Responds to "/get-public-key" endpoint with the sequencer's public key
 //
 
-import { VsockServer, VsockSocket } from 'node-vsock';
+import express from 'express';
 import crypto from 'crypto';
 import { getPublicKey } from "@noble/secp256k1";
 import { pubToAddress } from "./cryptography/decryption";
@@ -15,46 +15,26 @@ console.log("Sequencer starting...")
 const sequencerPrivHex = crypto.randomBytes(32).toString('hex');
 const sequencerPubHex = "0x" + Buffer.from(getPublicKey(sequencerPrivHex, false)).toString("hex");
 
-async function main() {
-  const server = new VsockServer();
-  const port = 9001;
+const app = express();
+const port = 4000;
 
-  server.on('error', (err: Error) => {
-    console.log("err:", err);
-  });
+// Middleware to parse JSON bodies
+app.use(express.json());
 
-  server.on('connection', (socket: VsockSocket) => {
-    console.log("new socket connection...");
+// GET endpoint to retrieve the public key
+app.get('/publickey', (req, res) => {
+  console.log("sending public key:", sequencerPubHex);
+  res.send(sequencerPubHex);
+});
 
-    socket.on('error', (err) => {
-      console.log("socket err:", err);
-    });
+// Default route
+app.get('/', (req, res) => {
+  res.send('sequencer online');
+});
 
-    socket.on('data', (buf: Buffer) => {
-      const message = buf.toString().trim();
-      console.log('socket recv:', message);
-
-      if (message === "GET_PUBLIC_KEY") {
-        console.log("sending public key:", sequencerPubHex);
-        socket.writeTextSync(sequencerPubHex);
-      } else {
-        socket.writeTextSync(`Unknown command: ${message}`);
-      }
-    });
-
-    socket.on('close', () => {
-      console.log("connection closed");
-    });
-
-    socket.on('attest', () => {
-    })
-  });
-
-  server.listen(port);
-
+// Start the server
+app.listen(port, '0.0.0.0', () => {
   console.log(`Sequencer listening on port ${port}`);
   console.log(`Public key: ${sequencerPubHex}`);
   console.log(`Address: ${pubToAddress(sequencerPubHex)}`);
-}
-
-main();
+});
