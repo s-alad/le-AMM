@@ -1,6 +1,6 @@
 # Sequencer
 
-A simple Express server that generates and exposes a public key.
+Sequencer Enclave Express Server
 
 ### Docker Compose
 
