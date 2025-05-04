@@ -1,13 +1,13 @@
 // Sequencer Express server
 // ---------------------
 // Exposes the sequencer's public key over HTTP for clients to connect to
-// Responds to "/get-public-key" endpoint with the sequencer's public key
+// Responds to "/publickey" endpoint with the sequencer's public key
 //
 
 import express from 'express';
 import crypto from 'crypto';
 import { getPublicKey } from "@noble/secp256k1";
-import { pubToAddress } from "./cryptography/decryption";
+import { pubToAddress } from "./cryptography/decryption.js";
 
 console.log("Sequencer starting...")
 

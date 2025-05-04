@@ -5,7 +5,7 @@
 import { getSharedSecret } from '@noble/secp256k1';
 import { keccak_256 }      from '@noble/hashes/sha3';
 import crypto from 'crypto';
-import { cleanHex, SwapRequest } from './constants';
+import { cleanHex, SwapRequest } from './constants.js';
 
 export interface EncryptedEnvelope {
   ephPub: string;   // hex, uncompressed (65 bytes)
