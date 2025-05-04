@@ -48,7 +48,7 @@ export async function decryptEciesEnvelope(
     throw new Error('Peer pubkey must be 130 hex chars (uncompressed)');
 
   /* 1. Shared secret */
-  const shared = await getSharedSecret(
+  const shared = getSharedSecret(
     priv,
     peer,
     false
