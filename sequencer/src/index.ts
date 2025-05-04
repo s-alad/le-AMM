@@ -1,40 +1,33 @@
-// Sequencer Express server
-// ---------------------
-// Exposes the sequencer's public key over HTTP for clients to connect to
-// Responds to "/publickey" endpoint with the sequencer's public key
-//
+// REPLACE the content of src/index.ts with this:
+import net from 'net';
 
-import express from 'express';
-import crypto from 'crypto';
-import { getPublicKey } from "@noble/secp256k1";
-import { pubToAddress } from "./cryptography/decryption.js";
-
-console.log("Sequencer starting...")
-
-// Generate a new random private key and corresponding public key
-const sequencerPrivHex = crypto.randomBytes(32).toString('hex');
-const sequencerPubHex = "0x" + Buffer.from(getPublicKey(sequencerPrivHex, false)).toString("hex");
-
-const app = express();
 const port = 4000;
 
-// Middleware to parse JSON bodies
-app.use(express.json());
+const server = net.createServer((socket) => {
+  console.log('>>> Client connected to minimal server');
+  socket.write('Hello from minimal enclave server!\r\n');
 
-// GET endpoint to retrieve the public key
-app.get('/publickey', (req, res) => {
-  console.log("sending public key:", sequencerPubHex);
-  res.send(sequencerPubHex);
+  // Simple echo for testing
+  socket.on('data', (data) => {
+     console.log('Received:', data.toString());
+     socket.write(`Echo: ${data.toString()}`);
+  });
+
+  socket.on('end', () => {
+    console.log('>>> Client disconnected from minimal server');
+  });
+
+  socket.on('error', (err) => {
+    console.error('>>> Minimal server socket error:', err);
+  });
 });
 
-// Default route
-app.get('/', (req, res) => {
-  res.send('sequencer online');
+server.listen(port, '0.0.0.0', () => {
+  console.log(`>>> Minimal server listening on port ${port}`);
 });
 
-// Start the server
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Sequencer listening on port ${port}`);
-  console.log(`Public key: ${sequencerPubHex}`);
-  console.log(`Address: ${pubToAddress(sequencerPubHex)}`);
+server.on('error', (err) => {
+  console.error('>>> Minimal server server error:', err);
 });
+
+console.log('>>> Minimal server starting...');
