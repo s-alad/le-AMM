@@ -16,7 +16,7 @@ COPY src ./src
 # Build the application
 RUN npm run build
 
-# Create a startup script with debugging info
+# Create a more detailed startup script that will help with debugging
 RUN echo '#!/bin/sh\n\
 echo "=== SYSTEM INFO ==="\n\
 uname -a\n\
@@ -29,8 +29,14 @@ which node || echo "node not in PATH"\n\
 echo "\n=== APPLICATION FILES ==="\n\
 ls -la /app\n\
 ls -la /app/dist\n\
+echo "\n=== PACKAGE.JSON ==="\n\
+cat package.json\n\
 echo "\n=== STARTING APPLICATION ==="\n\
-exec /usr/local/bin/node /app/dist/index.js\n\
+# Add a sleep to keep container running in case app exits\n\
+(node /app/dist/index.js || echo "Application exited with code $?") && \n\
+echo "App execution completed, keeping container alive..." && \n\
+# Keep the container running for debugging\n\
+tail -f /dev/null\n\
 ' > start.sh && chmod +x start.sh
 
 # Expose application port
