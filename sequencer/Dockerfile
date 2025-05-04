@@ -12,4 +12,4 @@ RUN npm run build
 # Expose the port the app runs on
 EXPOSE 4000
 # Command to run the application (Use absolute path)
-CMD ["/usr/local/bin/node", "dist/index.js"] # <--- CHANGE IS HERE
+CMD ["/usr/local/bin/node", "dist/index.js"]
