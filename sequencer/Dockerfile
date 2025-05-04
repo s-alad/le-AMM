@@ -1,22 +1,18 @@
-FROM node:20-alpine
-
+# Build stage
+FROM node:20-alpine AS builder
 WORKDIR /app
-
-# Copy dependency files
 COPY package.json package-lock.json ./
-
-# Install dependencies
 RUN npm ci
-
-# Copy source code and config files
 COPY tsconfig.json ./
 COPY src ./src
-
-# Build the application
 RUN npm run build
+# Use pkg to create a standalone executable
+RUN npm install -g pkg
+RUN pkg --targets node16-linux-x64 dist/index.js -o app
 
-# Expose the port the app runs on
+# Final minimal image
+FROM alpine:latest
+WORKDIR /app
+COPY --from=builder /app/app .
 EXPOSE 4000
-
-# Command to run the application
-CMD ["node", "dist/index.js"]
+CMD ["./app"]
