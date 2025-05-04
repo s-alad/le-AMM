@@ -1,4 +1,4 @@
-ssh -o IdentitiesOnly=yes -i "TEE.pem" ubuntu@ec2-34-200-222-129.compute-1.amazonaws.com
+ssh -o IdentitiesOnly=yes -i "TEE.pem" ubuntu@ec2-34-231-171-100.compute-1.amazonaws.com
 
 EC2
 M8g XLarge
