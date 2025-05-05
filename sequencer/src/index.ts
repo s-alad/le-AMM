@@ -30,6 +30,7 @@ function attest(): Buffer {
     return attestDoc;
   } catch (e) {
     console.error("[SEQ] error generating attestation document:", e);
+    console.log("error:", e);
     throw e;
   }
 }
