@@ -6,8 +6,7 @@ set -x
 # pull and build
 cd ~/TEE
 git pull
-cd ./sequencer/enclave
-docker build -t sequencer:latest .
+docker build -f sequencer/enclave/Dockerfile -t sequencer:latest .
 cd ~
 
 # describe enclaves
