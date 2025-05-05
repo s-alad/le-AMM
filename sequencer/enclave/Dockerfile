@@ -41,4 +41,4 @@ RUN npm run build
 EXPOSE 4000
 
 # Command to run the application.
-CMD ["/usr/local/bin/node", "/app/sequencer/enclave/dist/sequencer/index.js"] # <-- Correct path
+CMD /usr/local/bin/node /app/sequencer/enclave/dist/sequencer/index.js
