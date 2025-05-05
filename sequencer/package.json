@@ -4,20 +4,19 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "nodemon --exec tsx src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "generate-test-request": "tsx src/tests/test-request.ts"
+    "start": "node dist/index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
-  "module": "src/index.ts",
   "type": "module",
   "private": true,
   "devDependencies": {
+    "@tsconfig/node22": "^22.0.1",
     "@types/bun": "latest",
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.15.3",
     "nodemon": "^3.1.10",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3"
@@ -28,9 +27,6 @@
   "dependencies": {
     "@noble/hashes": "^1.8.0",
     "@noble/secp256k1": "^2.2.3",
-    "@types/express": "^4.17.21",
-    "@types/node": "^20.11.24",
-    "aws-nitro-enclaves-nsm-node": "^0.0.2",
     "crypto": "^1.0.1",
     "dotenv": "^16.5.0",
     "ethers": "^6.11.1",
@@ -38,6 +34,10 @@
     "node-vsock": "^0.0.5",
     "typescript": "^5",
     "viem": "^1.21.4",
-    "viem-chains": "latest"
+    "viem-chains": "latest",
+    "aws-nitro-enclaves-nsm-node": "file:./vendor/aws-nitro-enclaves-nsm-node-0.0.2.tgz"
+ },
+  "optionalDependencies": {
+    "aws-nitro-enclaves-nsm-node-linux-arm64-gnu": "file:vendor/aws-nitro-enclaves-nsm-node-linux-arm64-gnu-0.0.2.tgz"
   }
 }

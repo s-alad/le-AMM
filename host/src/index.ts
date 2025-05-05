@@ -1,15 +1,8 @@
-// server.ts
+// index.ts
 // -----------
-// Minimal Express API that exposes:
+// host server api:
 //   • GET  /info   → sequencer address & public key (for clients to encrypt)
 //   • POST /swap   → body = EncryptedEnvelope JSON, returns decrypted SwapRequest
-//
-// Build/run (dev):
-//   npm add express dotenv @types/express
-//   npx tsx server.ts
-//
-// Build/run (prod):
-//   tsc && node dist/server.js
 //
 
 import express, { Request, Response, NextFunction } from 'express';
@@ -18,53 +11,91 @@ import { decryptEciesEnvelope, EncryptedEnvelope, pubToAddress } from "./cryptog
 import { getPublicKey } from "@noble/secp256k1";
 import { SwapRequest } from "./cryptography/constants";
 import crypto from 'crypto';
-import { VsockSocket } from "node-vsock"
+import { VsockSocket } from 'node-vsock';
 
 // ---------------------------------------------------------------------------
-// Config & helpers
+// config & helpers
 // ---------------------------------------------------------------------------
 
-const vsockclient = new VsockSocket();
-const cid = 15;
-const vsockPort = 9001;
+// vsock connection config
+const seqcid = 16;
+const seqport = 9001;
 
-// These will be populated when fetching from the sequencer
-let sequencerPubHex: string = '';
+// sequencer public key
+let seqpubkey: string = '';
 
-function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>) {
+function handler(fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>) {
     return (req: Request, res: Response, next: NextFunction) => {
         fn(req, res, next).catch(next);
     };
 }
 
-vsockclient.on('error', (err:Error) => {
-    console.log("vsock error: ", err)
-});
-
-// Function to fetch sequencer public key via vsock
-async function fetchSequencerPublicKey(): Promise<string> {
+// generic vsock communication function
+async function talk<T>(message: string, timeout = 5000): Promise<T> {
+    console.log(`[HOST] sending message to sequencer: ${message}`);
     return new Promise((resolve, reject) => {
-        vsockclient.connect(cid, vsockPort, () => {
-            console.log("Connected to sequencer via vsock");
+        const client = new VsockSocket();
+        
+        client.on('error', (err: Error) => {
+            console.error("[HOST] vsock client error:", err);
+            reject(err);
+        });
+        
+        console.log("[HOST] attempting to connect to sequencer via vsock");
+        client.connect(seqcid, seqport, () => {
+            console.log("[HOST] connected to sequencer via vsock");
             
-            // Send a request for the public key
-            vsockclient.writeTextSync("GET_PUBLIC_KEY");
+            client.writeTextSync(message);
             
-            vsockclient.on('data', (buf: Buffer) => {
-                const pubKey = buf.toString().trim();
-                console.log("Received public key from sequencer:", pubKey);
-                vsockclient.end();
-                resolve(pubKey);
+            client.on('data', (buf: Buffer) => {
+                const response = buf.toString();
+                console.log(`[HOST] received response from sequencer: ${response}`);
+                client.end();
+                resolve(response as unknown as T);
             });
         });
-
-        // Add timeout handling
+        
+        // timeout
         setTimeout(() => {
-            if (!sequencerPubHex) {
-                reject(new Error("Timeout waiting for sequencer public key"));
-            }
-        }, 5000);
+            reject(new Error(`[HOST] timeout - no response from sequencer after ${timeout}ms`));
+        }, timeout);
     });
+}
+
+// get sequencer public key via vsock
+async function spk(): Promise<string> {
+    console.log("[HOST] fetching sequencer public key via vsock");
+    return talk<string>('SEQ_PUBLICKEY');
+}
+
+// check if the sequencer is alive 
+async function beat(): Promise<boolean> {
+    console.log("[HOST] sending heartbeat to sequencer");
+    try {
+        const response = await talk<string>('SEQ_HEARTBEAT');
+        return response === '1';
+    } catch (error) {
+        console.error("[HOST] heartbeat failed:", error);
+        return false;
+    }
+}
+
+// get attestation document from sequencer
+async function testify(): Promise<Buffer | null> {
+    console.log("[HOST] requesting attestation document from sequencer");
+    try {
+        const b64r = await talk<string>('SEQ_ATTESTATION');
+        
+        if (b64r === 'ERROR') {
+            console.error("[HOST] sequencer failed to generate attestation document");
+            return null;
+        }
+        
+        return Buffer.from(b64r, 'base64');
+    } catch (error) {
+        console.error("[HOST] attestation request failed:", error);
+        return null;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -74,46 +105,56 @@ async function fetchSequencerPublicKey(): Promise<string> {
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
-app.get("/health", (_req, res) => res.send("ok"));
+app.get("/health", handler(async (_req, res) => {
+    const alive = await beat();
+    if (alive) {
+        res.send("ok");
+    } else {
+        res.status(500).send("not ok");
+    }
+}));
 
 app.get("/info", (_req, res) => {
     res.json({
-        address: pubToAddress(sequencerPubHex),
-        publicKey: sequencerPubHex,
+        address: pubToAddress(seqpubkey),
+        publicKey: seqpubkey, 
     });
 });
 
-app.post(
-    "/attest",
-    asyncHandler(async (req, res) => {
-        // forward to sequencer + reply
-        return null;
+// forward /publickey requests to the sequencer via vsock
+app.get("/publickey", handler(async (_req, res) => {
+    try {
+        const pubkey = await spk();
+        res.send(pubkey);
+    } catch (error) {
+        console.error("[HOST] error fetching public key from sequencer:", error);
+        res.status(500).json({ error: "failed to fetch public key from sequencer" });
     }
-));
+}));
 
-app.post(
-    "/swap",
-    asyncHandler(async (req, res) => {
-        const envelope: EncryptedEnvelope = req.body;
-
-        if (!envelope || typeof envelope !== "object" || !("ephPub" in envelope)) {
-            return res.status(400).json({ error: "Body must be an EncryptedEnvelope" });
+app.get(
+    "/attest",
+    handler(async (_req, res) => {
+        const testification = await testify();
+        
+        if (!testification) {
+            return res.status(500).json({ error: "failed to get attestation document from sequencer" });
         }
-
-        /* let swap: SwapRequest;
-        try {
-            swap = await decryptEciesEnvelope(envelope, sequencerPrivHex);
-        } catch (err) {
-            return res.status(400).json({ error: (err as Error).message });
-        } */
-
-        /* console.log("[Swap]", swap);
-
-        res.json({ ok: true, swap }); */
+        
+        // return the attestation document
+        res.setHeader('Content-Type', 'application/octet-stream');
+        return res.send(testification);
     })
 );
 
-// Error handler
+app.post(
+    "/swap",
+    handler(async (req, res) => {
+        const envelope: EncryptedEnvelope = req.body;
+    })
+);
+
+// error handler
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     console.error(err.stack);
     res.status(500).json({ error: "internal" });
@@ -121,22 +162,23 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 const port = Number(process.env.PORT) || 8080;
 
-// Initialize: fetch public key before starting server
+// initialize: fetch public key on startup
 async function initialize() {
     try {
-        sequencerPubHex = await fetchSequencerPublicKey();
+        seqpubkey = await spk();
         
-        // Start express server after we have the public key
-        app.listen(port, () => {
-            console.log(`Sequencer API listening on http://localhost:${port}`);
-            console.log(`Public key  : ${sequencerPubHex}`);
-            console.log(`Address     : ${pubToAddress(sequencerPubHex)}`);
+        // start the express server after we have the public key
+        app.listen(port, '0.0.0.0', () => {
+            console.log(`[HOST] ACTIVE @ http://localhost:${port}`);
+            console.log(`[SEQ] PUBLIC KEY: ${seqpubkey}`);
+            console.log(`[SEQ] ADDRESS: ${pubToAddress(seqpubkey)}`);
         });
     } catch (error) {
-        console.error("Failed to fetch sequencer public key:", error);
+        console.error("[HOST] failed to fetch sequencer public key:", error);
+        console.error("[HOST] TERMINATING");
         process.exit(1);
     }
 }
 
-// Start the initialization process
+// start the initialization process
 initialize();

@@ -1,5 +1,5 @@
-import { encryptForSequencer } from './encryption';
-import { decryptEciesEnvelope } from './decryption';
+import { encryptForSequencer } from './encryption.js';
+import { decryptEciesEnvelope } from './decryption.js';
 
 // 1) user side
 const swap = {

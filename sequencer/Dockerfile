@@ -1,22 +1,16 @@
-# ---------- 1. Build stage ----------
-FROM node:20-slim AS build
+FROM node:20-slim
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
+# Copy dependency files
+COPY package.json package-lock.json ./
+COPY vendor ./vendor
+# Install dependencies
+RUN npm ci
+# Copy source code and config files
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build                     # -> dist/**
-
-# ---------- 2. Runtime stage ----------
-FROM public.ecr.aws/amazonlinux/amazonlinux:2023
-WORKDIR /app
-
-# Install Node.js in the runtime stage
-RUN curl -sL https://rpm.nodesource.com/setup_20.x | bash - && \
-    yum install -y nodejs && \
-    yum clean all
-
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
-ENV NODE_ENV=production
-ENTRYPOINT ["node", "dist/index.js"]
+# Build the application
+RUN npm run build
+# Expose the port the app runs on
+EXPOSE 4000
+# Command to run the application (Use absolute path)
+CMD ["/usr/local/bin/node", "/app/dist/index.js"]

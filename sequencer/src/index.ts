@@ -1,71 +1,89 @@
 // Sequencer vsock server
 // ---------------------
-// Exposes the sequencer's public key over vsock for the host to connect to
-// Responds to "GET_PUBLIC_KEY" messages with the sequencer's public key
+// handles TEE actions
 //
 
-import { VsockServer, VsockSocket } from 'node-vsock';
 import crypto from 'crypto';
 import { getPublicKey } from "@noble/secp256k1";
-import { pubToAddress } from "./cryptography/decryption";
+import { pubToAddress } from "./cryptography/decryption.js";
+import { VsockServer, VsockSocket } from 'node-vsock';
 import { getAttestationDoc, open } from 'aws-nitro-enclaves-nsm-node';
 
-console.log("Sequencer starting...")
+console.log("[SEQ] ONLINE");
 
-// Generate a new random private key and corresponding public key
-const sequencerPrivHex = crypto.randomBytes(32).toString('hex');
-const sequencerPubHex = "0x" + Buffer.from(getPublicKey(sequencerPrivHex, false)).toString("hex");
+// generate a new random private key and corresponding public key
+const seqpubhex = "0x" + Buffer.from(
+  getPublicKey(crypto.randomBytes(32).toString('hex'), false)
+).toString("hex");
 
-async function main() {
-  const server = new VsockServer();
-  const port = 9001;
-
-  server.on('error', (err: Error) => {
-    console.log("err:", err);
-  });
-
-  server.on('connection', (socket: VsockSocket) => {
-    console.log("new socket connection...");
-
-    socket.on('error', (err) => {
-      console.log("socket err:", err);
-    });
-
-    socket.on('data', (buf: Buffer) => {
-      const message = buf.toString().trim();
-      console.log('socket recv:', message);
-
-      if (message === "GET_PUBLIC_KEY") {
-        console.log("sending public key:", sequencerPubHex);
-        socket.writeTextSync(sequencerPubHex);
-      } else {
-        socket.writeTextSync(`Unknown command: ${message}`);
-      }
-    });
-
-    socket.on('close', () => {
-      console.log("connection closed");
-    });
-
-    socket.on('attest', () => {
-      let fd = open();
-      // https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html#doc-def
-      let attestDoc = getAttestationDoc(
-        fd,
-        null,
-        Buffer.from(crypto.randomBytes(32)),
-        Buffer.from(sequencerPubHex.substring(2), 'hex')
-      )
-      console.log("attestation doc:", attestDoc);
-      socket.writeTextSync(attestDoc.toString('base64'));
-    })
-  });
-
-  server.listen(port);
-
-  console.log(`Sequencer listening on port ${port}`);
-  console.log(`Public key: ${sequencerPubHex}`);
-  console.log(`Address: ${pubToAddress(sequencerPubHex)}`);
+// generate an attestation document
+function attest(): Buffer {
+  console.log("[SEQ] generating attestation document");
+  try {
+    let fd = open();
+    let attestDoc = getAttestationDoc(
+      fd,
+      null,
+      Buffer.from(crypto.randomBytes(32)),
+      Buffer.from(seqpubhex.substring(2), 'hex')
+    );
+    return attestDoc;
+  } catch (e) {
+    console.error("[SEQ] error generating attestation document:", e);
+    console.log("error:", e);
+    throw e;
+  }
 }
 
-main();
+// create vsock server
+const server = new VsockServer();
+const port = 9001;
+
+server.on('error', (err: Error) => {
+  console.error("[SEQ] server error:", err);
+});
+
+server.on('connection', (socket: VsockSocket) => {
+  console.log("[SEQ] new connection from host");
+  
+  socket.on('error', (err) => {
+    console.error("[SEQ] socket error:", err);
+  });
+  
+  socket.on('data', (buf: Buffer) => {
+    const request = buf.toString();
+    console.log("[SEQ] received request:", request);
+    
+    if (request === 'SEQ_PUBLICKEY') {
+      console.log("[SEQ] (publickey) sending public key:", seqpubhex);
+      socket.writeTextSync(seqpubhex);
+    }
+
+    if (request === 'SEQ_HEARTBEAT') {
+      console.log("[SEQ] (heartbeat) sending heartbeat");
+      socket.writeTextSync('1');
+    }
+    
+    if (request === 'SEQ_ATTESTATION') {
+      console.log("[SEQ] (attestation) generating and sending attestation document");
+      try {
+        const attestDoc = attest();
+        socket.writeTextSync(attestDoc.toString('base64'));
+      } catch (error) {
+        console.error("[SEQ] attestation error:", error);
+        socket.writeTextSync('ERROR');
+      }
+    }
+  });
+});
+
+// start the server
+server.listen(port);
+console.log(`[SEQ] ACTIVE @ ${port}`);
+console.log(`[SEQ] PUBLIC KEY: ${seqpubhex}`);
+console.log(`[SEQ] ADDRESS: ${pubToAddress(seqpubhex)}`);
+
+// heartbeat every 10 seconds
+setInterval(() => {
+  console.log("[SEQ] HEARTBEAT");
+}, 10000);
