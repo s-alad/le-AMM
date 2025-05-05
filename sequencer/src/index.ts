@@ -84,8 +84,8 @@ server.on('connection', (socket: VsockSocket) => {
     if (request === 'SEQ_ATTESTATION') {
       console.log("[SEQ] (attestation) generating and sending attestation document");
       try {
-        const attestDoc = attest();
-        socket.writeTextSync(attestDoc.toString('base64'));
+        const d = attest();
+        socket.writeTextSync(d.toString('base64'));
       } catch (error) {
         console.error("[SEQ] attestation error:", error);
         socket.writeTextSync('ERROR');
