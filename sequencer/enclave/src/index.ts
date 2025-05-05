@@ -148,5 +148,6 @@ console.log(`[SEQ] ADDRESS: ${pubToAddress(seqpubhex)}`);
 
 // heartbeat every 10 seconds
 setInterval(() => {
-  console.log("[SEQ] HEARTBEAT");
+  const timestamp = new Date().toISOString();
+  console.log(`[SEQ] HEARTBEAT ${timestamp}`);
 }, 10000);
