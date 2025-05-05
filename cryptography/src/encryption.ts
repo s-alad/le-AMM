@@ -2,7 +2,7 @@
 //
 //   npm add @noble/secp256k1 @noble/hashes
 //
-import { utils, getSharedSecret, getPublicKey } from '@noble/secp256k1';
+import { getSharedSecret, getPublicKey } from '@noble/secp256k1';
 import { createHash, randomBytes, createCipheriv } from 'node:crypto'; // Use node: prefix for clarity
 import { EncryptedEnvelope } from './decryption.js';
 import { cleanHex, SwapRequest } from './constants.js';
@@ -13,7 +13,7 @@ export async function encryptForSequencer(
   sequencerPubHex: string
 ): Promise<EncryptedEnvelope> {
   /* 1.   Generate an ephemeral key-pair (one-off per message) */
-  const ephPriv = utils.randomPrivateKey();           // Uint8Array(32)
+  const ephPriv = randomBytes(32);                    // Uint8Array(32)
   const ephPub  = getPublicKey(ephPriv, false);       // 65-byte, uncompressed
 
   /* 2.   ECDH → shared secret with sequencer's pub key */

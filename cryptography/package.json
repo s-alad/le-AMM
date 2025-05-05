@@ -8,7 +8,8 @@
     "./encryption": "./dist/encryption.js",
     "./decryption": "./dist/decryption.js",
     "./derive": "./dist/derive.js",
-    "./constants": "./dist/constants.js"
+    "./constants": "./dist/constants.js",
+    "./message": "./dist/message.js"
   },
   "scripts": {
     "build": "tsc --build",
@@ -22,7 +23,8 @@
     "@noble/hashes": "^1.8.0",
     "@noble/secp256k1": "^2.2.3",
     "@types/node": "^22.15.3",
-    "dotenv": "^16.5.0"
+    "dotenv": "^16.5.0",
+    "ts-node": "^10.9.2"
   },
   "devDependencies": {
     "@tsconfig/node22": "^22.0.1",
