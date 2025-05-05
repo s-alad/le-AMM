@@ -9,20 +9,15 @@ WORKDIR /app/cryptography
 RUN npm ci
 RUN npm run build
 
-# Switch back to main app directory
+# Switch back to main app directory and copy everything from enclave
 WORKDIR /app
+COPY sequencer/enclave ./
 
-# Copy enclave files - ensure both files exist
-COPY sequencer/enclave/package.json ./
-COPY sequencer/enclave/package-lock.json ./
-COPY sequencer/enclave/vendor ./vendor
+# Make sure package.json is valid before installing
+RUN cat package.json
 
-# Use npm install instead of npm ci since there might be an issue with the lock file
-RUN npm install
-
-# Copy source code and config files
-COPY sequencer/enclave/tsconfig.json ./
-COPY sequencer/enclave/src ./src
+# Install dependencies
+RUN npm install --no-package-lock
 
 # Build the application
 RUN npm run build
