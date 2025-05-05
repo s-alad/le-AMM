@@ -1,4 +1,4 @@
-FROM node:20
+FROM node:20-slim
 WORKDIR /app
 # Copy dependency files
 COPY package.json package-lock.json ./
