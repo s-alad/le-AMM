@@ -142,7 +142,7 @@ server.on('connection', (socket: VsockSocket) => {
 
 // start the server
 server.listen(port);
-console.log(`[SEQ] ACTIVE V0 @ ${port}`);
+console.log(`[SEQ] ACTIVE V1 @ ${port}`);
 console.log(`[SEQ] PUBLIC KEY: ${seqpubhex}`);
 console.log(`[SEQ] ADDRESS: ${pubToAddress(seqpubhex)}`);
 
