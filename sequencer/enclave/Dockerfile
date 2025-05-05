@@ -2,26 +2,26 @@ FROM node:20-slim
 WORKDIR /app
 
 # Copy cryptography module first
-COPY ../../cryptography/package.json ../../cryptography/package-lock.json ./cryptography/
+COPY cryptography/package.json cryptography/package-lock.json ./cryptography/
 WORKDIR /app/cryptography
 RUN npm ci
-COPY ../../cryptography/tsconfig.json ./
-COPY ../../cryptography/src ./src
+COPY cryptography/tsconfig.json ./
+COPY cryptography/src ./src
 RUN npm run build
 
 # Switch back to main app directory
 WORKDIR /app
 
-# Copy dependency files for enclave
-COPY package.json package-lock.json ./
-COPY vendor ./vendor
+# Copy enclave files
+COPY sequencer/enclave/package.json sequencer/enclave/package-lock.json ./
+COPY sequencer/enclave/vendor ./vendor
 
 # Install dependencies
 RUN npm ci
 
 # Copy source code and config files
-COPY tsconfig.json ./
-COPY src ./src
+COPY sequencer/enclave/tsconfig.json ./
+COPY sequencer/enclave/src ./src
 
 # Build the application
 RUN npm run build
