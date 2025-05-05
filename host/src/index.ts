@@ -18,14 +18,15 @@ import { decryptEciesEnvelope, EncryptedEnvelope, pubToAddress } from "./cryptog
 import { getPublicKey } from "@noble/secp256k1";
 import { SwapRequest } from "./cryptography/constants";
 import crypto from 'crypto';
-import axios from 'axios';
+import { VsockSocket } from 'node-vsock';
 
 // ---------------------------------------------------------------------------
 // Config & helpers
 // ---------------------------------------------------------------------------
 
 // Sequencer connection details
-const sequencerUrl = 'http://localhost:4000';
+const sequencerCid = 2; // CID for the sequencer VM or container
+const sequencerPort = 9001; // vsock port
 
 // These will be populated when fetching from the sequencer
 let sequencerPubHex: string = '';
@@ -36,17 +37,29 @@ function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => P
     };
 }
 
-// Function to fetch sequencer public key via HTTP
+// Function to fetch sequencer public key via vsock
 async function fetchSequencerPublicKey(): Promise<string> {
-    try {
-        const response = await axios.get(`${sequencerUrl}/publickey`);
-        const pubKey = response.data;
-        console.log("Received public key from sequencer:", pubKey);
-        return pubKey;
-    } catch (error) {
-        console.error("Error fetching sequencer public key:", error);
-        throw error;
-    }
+    return new Promise((resolve, reject) => {
+        const client = new VsockSocket();
+        
+        client.on('error', (err: Error) => {
+            console.error("vsock client error:", err);
+            reject(err);
+        });
+        
+        client.connect(sequencerCid, sequencerPort, () => {
+            console.log("Connected to sequencer via vsock");
+            
+            client.writeTextSync('publickey');
+            
+            client.on('data', (buf: Buffer) => {
+                const publicKey = buf.toString();
+                console.log("Received public key from sequencer:", publicKey);
+                client.end();
+                resolve(publicKey);
+            });
+        });
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -65,15 +78,13 @@ app.get("/info", (_req, res) => {
     });
 });
 
-// Forward /publickey requests to the sequencer
+// Forward /publickey requests to the sequencer via vsock
 app.get("/publickey", asyncHandler(async (_req, res) => {
     try {
-        // Forward the request to the sequencer
-        const response = await axios.get(`${sequencerUrl}/publickey`);
-        // Send the sequencer's response back to the client
-        res.send(response.data);
+        const publicKey = await fetchSequencerPublicKey();
+        res.send(publicKey);
     } catch (error) {
-        console.error("Error forwarding publickey request:", error);
+        console.error("Error fetching public key from sequencer:", error);
         res.status(500).json({ error: "Failed to fetch public key from sequencer" });
     }
 }));
@@ -83,8 +94,8 @@ app.post(
     asyncHandler(async (req, res) => {
         // forward to sequencer + reply
         return null;
-    }
-));
+    })
+);
 
 app.post(
     "/swap",
@@ -123,9 +134,9 @@ async function initialize() {
         
         // Start express server after we have the public key
         app.listen(port, () => {
-            console.log(`Sequencer API listening on http://localhost:${port}`);
-            console.log(`Public key  : ${sequencerPubHex}`);
-            console.log(`Address     : ${pubToAddress(sequencerPubHex)}`);
+            console.log(`Host API listening on http://localhost:${port}`);
+            console.log(`Sequencer Public key: ${sequencerPubHex}`);
+            console.log(`Sequencer Address: ${pubToAddress(sequencerPubHex)}`);
         });
     } catch (error) {
         console.error("Failed to fetch sequencer public key:", error);

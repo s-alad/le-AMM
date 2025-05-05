@@ -33,8 +33,8 @@
     "ethers": "^6.11.1",
     "express": "^4.18.2",
     "node-vsock": "^0.0.5",
+    "typescript": "^5",
     "viem": "^1.21.4",
-    "viem-chains": "latest",
-    "typescript": "^5"
+    "viem-chains": "latest"
   }
 }

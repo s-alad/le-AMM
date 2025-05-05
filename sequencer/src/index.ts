@@ -1,13 +1,12 @@
-// Sequencer Express server
+// Sequencer vsock server
 // ---------------------
-// Exposes the sequencer's public key over HTTP for clients to connect to
-// Responds to "/publickey" endpoint with the sequencer's public key
+// Exposes the sequencer's public key over vsock for the host to connect to
 //
 
-import express from 'express';
 import crypto from 'crypto';
 import { getPublicKey } from "@noble/secp256k1";
 import { pubToAddress } from "./cryptography/decryption.js";
+import { VsockServer, VsockSocket } from 'node-vsock';
 
 console.log("Sequencer starting...")
 
@@ -15,30 +14,39 @@ console.log("Sequencer starting...")
 const sequencerPrivHex = crypto.randomBytes(32).toString('hex');
 const sequencerPubHex = "0x" + Buffer.from(getPublicKey(sequencerPrivHex, false)).toString("hex");
 
-const app = express();
-const port = 4000;
+// Create vsock server
+const server = new VsockServer();
+const port = 9001; // vsock port
 
-// Middleware to parse JSON bodies
-app.use(express.json());
-
-// GET endpoint to retrieve the public key
-app.get('/publickey', (req, res) => {
-  console.log("sending public key:", sequencerPubHex);
-  res.send(sequencerPubHex);
+server.on('error', (err: Error) => {
+  console.error("Server error:", err);
 });
 
-// Default route
-app.get('/', (req, res) => {
-  res.send('sequencer online');
+server.on('connection', (socket: VsockSocket) => {
+  console.log("New connection from host");
+  
+  socket.on('error', (err) => {
+    console.error("Socket error:", err);
+  });
+  
+  socket.on('data', (buf: Buffer) => {
+    const request = buf.toString();
+    console.log("Received request:", request);
+    
+    if (request === 'publickey') {
+      console.log("Sending public key:", sequencerPubHex);
+      socket.writeTextSync(sequencerPubHex);
+    }
+  });
 });
 
 // Start the server
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Sequencer listening on port ${port}`);
-  console.log(`Public key: ${sequencerPubHex}`);
-  console.log(`Address: ${pubToAddress(sequencerPubHex)}`);
-});
+server.listen(port);
+console.log(`Sequencer listening on vsock port ${port}`);
+console.log(`Public key: ${sequencerPubHex}`);
+console.log(`Address: ${pubToAddress(sequencerPubHex)}`);
 
+// Log every 10 seconds that we're alive
 setInterval(() => {
   console.log("active");
 }, 10000);
