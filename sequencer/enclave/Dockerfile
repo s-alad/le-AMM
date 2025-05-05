@@ -12,12 +12,13 @@ RUN npm run build
 # Switch back to main app directory
 WORKDIR /app
 
-# Copy enclave files
-COPY sequencer/enclave/package.json sequencer/enclave/package-lock.json ./
+# Copy enclave files - ensure both files exist
+COPY sequencer/enclave/package.json ./
+COPY sequencer/enclave/package-lock.json ./
 COPY sequencer/enclave/vendor ./vendor
 
-# Install dependencies
-RUN npm ci
+# Use npm install instead of npm ci since there might be an issue with the lock file
+RUN npm install
 
 # Copy source code and config files
 COPY sequencer/enclave/tsconfig.json ./
