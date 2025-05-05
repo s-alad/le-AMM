@@ -4,3 +4,5 @@
 
 /.env
 /contracts/.env
+
+.keeper
