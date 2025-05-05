@@ -25,7 +25,7 @@ import { VsockSocket } from 'node-vsock';
 // ---------------------------------------------------------------------------
 
 // Sequencer connection details
-const sequencerCid = 2; // CID for the sequencer VM or container
+const sequencerCid = 16; // CID for the sequencer VM or container
 const sequencerPort = 9001; // vsock port
 
 // These will be populated when fetching from the sequencer
@@ -60,7 +60,7 @@ async function fetchSequencerPublicKey(): Promise<string> {
                 client.end();
                 resolve(publicKey);
             });
-        });
+        })
     });
 }
 
