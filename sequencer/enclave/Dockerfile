@@ -43,4 +43,4 @@ EXPOSE 4000
 # Command to run the application.
 # CMD /usr/local/bin/node /app/sequencer/enclave/dist/sequencer/index.js # Shell form (tried last)
 # CMD ls -R /app/sequencer/enclave/dist/index.js
-CMD ["/usr/local/bin/node", "/app/sequencer/enclave/dist/index.js"] # <-- Correct path
+CMD /usr/local/bin/node /app/sequencer/enclave/dist/index.js
