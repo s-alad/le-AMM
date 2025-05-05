@@ -98,6 +98,24 @@ async function testify(): Promise<Buffer | null> {
     }
 }
 
+// forward swap request to sequencer for decryption and processing
+async function fwdswap(envelope: EncryptedEnvelope): Promise<SwapRequest | null> {
+    console.log("[HOST] forwarding encrypted swap request to sequencer");
+    try {
+        const strenvelope = JSON.stringify(envelope);
+        const message = `SEQ_SWAP:${strenvelope}`;
+        const response = await talk<string>(message);
+        if (response.startsWith('ERROR:')) {
+            console.error("[HOST] sequencer failed to process swap:", response.substring(6));
+            return null;
+        }
+        return JSON.parse(response) as SwapRequest;
+    } catch (error) {
+        console.error("[HOST] swap request failed:", error);
+        return null;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Express app
 // ---------------------------------------------------------------------------
@@ -151,6 +169,13 @@ app.post(
     "/swap",
     handler(async (req, res) => {
         const envelope: EncryptedEnvelope = req.body;
+        const sr = await fwdswap(envelope);
+        
+        if (sr) {
+            res.json(sr);
+        } else {
+            res.status(500).json({ error: "failed to process swap request" });
+        }
     })
 );
 

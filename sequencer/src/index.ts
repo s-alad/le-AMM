@@ -8,12 +8,15 @@ import { getPublicKey } from "@noble/secp256k1";
 import { pubToAddress } from "./cryptography/decryption.js";
 import { VsockServer, VsockSocket } from 'node-vsock';
 import { getAttestationDoc, open } from 'aws-nitro-enclaves-nsm-node';
+import { decryptEciesEnvelope, EncryptedEnvelope } from "./cryptography/decryption.js";
+import { SwapRequest } from "./cryptography/constants.js";
 
 console.log("[SEQ] ONLINE");
 
 // generate a new random private key and corresponding public key
+const seqprivatekey = crypto.randomBytes(32).toString('hex');
 const seqpubhex = "0x" + Buffer.from(
-  getPublicKey(crypto.randomBytes(32).toString('hex'), false)
+  getPublicKey(seqprivatekey, false)
 ).toString("hex");
 
 // generate an attestation document
@@ -31,6 +34,20 @@ function attest(): Buffer {
   } catch (e) {
     console.error("[SEQ] error generating attestation document:", e);
     throw e;
+  }
+}
+
+// Process a swap request by decrypting it
+async function swapping(strenvelope: string): Promise<SwapRequest | string> {
+  console.log("[SEQ] processing swap request");
+  try {
+    const envelope: EncryptedEnvelope = JSON.parse(strenvelope);
+    const sr = await decryptEciesEnvelope(envelope, seqprivatekey);
+    console.log("[SEQ] successfully decrypted swap request:", sr);
+    return sr;
+  } catch (error: any) {
+    console.error("[SEQ] failed to process swap request:", error);
+    return `ERROR:${error.message || 'Unknown error processing swap'}`;
   }
 }
 
@@ -72,6 +89,22 @@ server.on('connection', (socket: VsockSocket) => {
         console.error("[SEQ] attestation error:", error);
         socket.writeTextSync('ERROR');
       }
+    }
+    
+    if (request.startsWith('SEQ_SWAP:')) {
+      console.log("[SEQ] received swap request");
+      const [, strenvelope] = request.split('SEQ_SWAP:', 2);
+      
+      swapping(strenvelope).then(result => {
+        if (typeof result === 'string') {
+          socket.writeTextSync(result);
+        } else {
+          socket.writeTextSync(JSON.stringify(result));
+        }
+      }).catch(error => {
+        console.error("[SEQ] error processing swap:", error);
+        socket.writeTextSync(`ERROR:${error.message || 'Unknown error'}`);
+      });
     }
   });
 });
