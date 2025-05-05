@@ -82,10 +82,11 @@ async function beat(): Promise<boolean> {
 }
 
 // get attestation document from sequencer
-async function testify(): Promise<Buffer | null> {
-    console.log("[HOST] requesting attestation document from sequencer");
+async function testify(nonceHex: string): Promise<Buffer | null> {
+    console.log("[HOST] requesting attestation document from sequencer with nonce:", nonceHex);
     try {
-        const b64r = await talk<string>('SEQ_ATTESTATION');
+        const message = `SEQ_ATTESTATION:${nonceHex}`;
+        const b64r = await talk<string>(message);
         
         if (b64r === 'ERROR') {
             console.error("[HOST] sequencer failed to generate attestation document");
@@ -153,8 +154,20 @@ app.get("/publickey", handler(async (_req, res) => {
 
 app.get(
     "/attest",
-    handler(async (_req, res) => {
-        const testification = await testify();
+    handler(async (req, res) => {
+        const nonce = req.query.nonce;
+
+        if (!nonce || typeof nonce !== 'string') {
+            return res.status(400).json({ error: "Nonce query parameter is required and must be a string" });
+        }
+
+        // Optional: Add validation for nonce format (e.g., hex) if needed
+        // const hexRegex = /^[0-9a-fA-F]+$/;
+        // if (!hexRegex.test(nonce)) {
+        //     return res.status(400).json({ error: "Nonce must be a valid hex string" });
+        // }
+
+        const testification = await testify(nonce);
         
         if (!testification) {
             return res.status(500).json({ error: "failed to get attestation document from sequencer" });
