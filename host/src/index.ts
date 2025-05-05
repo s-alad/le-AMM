@@ -168,7 +168,7 @@ async function initialize() {
         seqpubkey = await spk();
         
         // start the express server after we have the public key
-        app.listen(port, () => {
+        app.listen(port, '0.0.0.0', () => {
             console.log(`[HOST] ACTIVE @ http://localhost:${port}`);
             console.log(`[SEQ] PUBLIC KEY: ${seqpubkey}`);
             console.log(`[SEQ] ADDRESS: ${pubToAddress(seqpubkey)}`);
