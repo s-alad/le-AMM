@@ -4,7 +4,7 @@
 //
 import { getSharedSecret } from '@noble/secp256k1';
 import { keccak_256 }      from '@noble/hashes/sha3';
-import crypto from 'crypto';
+import { createDecipheriv, createHash,  } from 'node:crypto'; // Use node: prefix for clarity
 import { cleanHex, SwapRequest } from './constants.js';
 
 export interface EncryptedEnvelope {
@@ -55,14 +55,14 @@ export async function decryptEciesEnvelope(
   );
 
   /* 2. AES key */
-  const key = crypto.createHash('sha256').update(shared).digest();
+  const key = createHash('sha256').update(shared).digest();
 
   /* 3. GCM decrypt */
   const iv  = Buffer.from(o.iv,  'base64');
   const tag = Buffer.from(o.tag, 'base64');
   const ct  = Buffer.from(o.data,'base64');
 
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   const pt = Buffer.concat([decipher.update(ct), decipher.final()]).toString();
 

@@ -3,7 +3,7 @@
 //   npm add @noble/secp256k1 @noble/hashes
 //
 import { utils, getSharedSecret, getPublicKey } from '@noble/secp256k1';
-import crypto from 'crypto';
+import { createHash, randomBytes, createCipheriv } from 'node:crypto'; // Use node: prefix for clarity
 import { EncryptedEnvelope } from './decryption.js';
 import { cleanHex, SwapRequest } from './constants.js';
 
@@ -20,11 +20,11 @@ export async function encryptForSequencer(
   const shared  = await getSharedSecret(ephPriv, cleanHex(sequencerPubHex), false);
 
   /* 3.   Derive 32-byte AES-GCM key (SHA-256) */
-  const key     = crypto.createHash('sha256').update(shared).digest();
+  const key     = createHash('sha256').update(shared).digest();
 
   /* 4.   Encrypt swap JSON with AES-256-GCM */
-  const iv      = crypto.randomBytes(12);
-  const cipher  = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const iv      = randomBytes(12);
+  const cipher  = createCipheriv('aes-256-gcm', key, iv);
   const ct      = Buffer.concat([
     cipher.update(JSON.stringify(swap), 'utf8'),
     cipher.final()
