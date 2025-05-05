@@ -30,14 +30,14 @@ function handler(fn: (req: Request, res: Response, next: NextFunction) => Promis
     };
 }
 
-// get sequencer public key via vsock
-async function spk(): Promise<string> {
-    console.log("[HOST] fetching sequencer public key via vsock");
+// generic vsock communication function
+async function talk<T>(message: string, timeout = 5000): Promise<T> {
+    console.log(`[HOST] sending message to sequencer: ${message}`);
     return new Promise((resolve, reject) => {
         const client = new VsockSocket();
         
         client.on('error', (err: Error) => {
-            console.error("vsock client error:", err);
+            console.error("[HOST] vsock client error:", err);
             reject(err);
         });
         
@@ -45,53 +45,39 @@ async function spk(): Promise<string> {
         client.connect(seqcid, seqport, () => {
             console.log("[HOST] connected to sequencer via vsock");
             
-            client.writeTextSync('SEQ_PUBLICKEY');
+            client.writeTextSync(message);
             
             client.on('data', (buf: Buffer) => {
-                const publicKey = buf.toString();
-                console.log("[HOST] received public key from sequencer:", publicKey);
+                const response = buf.toString();
+                console.log(`[HOST] received response from sequencer: ${response}`);
                 client.end();
-                resolve(publicKey);
+                resolve(response as unknown as T);
             });
-        })
+        });
+        
+        // timeout
+        setTimeout(() => {
+            reject(new Error(`[HOST] timeout - no response from sequencer after ${timeout}ms`));
+        }, timeout);
     });
+}
+
+// get sequencer public key via vsock
+async function spk(): Promise<string> {
+    console.log("[HOST] fetching sequencer public key via vsock");
+    return talk<string>('SEQ_PUBLICKEY');
 }
 
 // check if the sequencer is alive 
 async function beat(): Promise<boolean> {
     console.log("[HOST] sending heartbeat to sequencer");
-    return new Promise((resolve, reject) => {
-        const client = new VsockSocket();
-        
-        client.on('error', (err: Error) => {
-            console.error("vsock client error:", err);
-            reject(err);
-        });
-        
-        console.log("[HOST] attempting to connect to sequencer for heartbeat");
-        client.connect(seqcid, seqport, () => {
-            console.log("[HOST] connected to sequencer for heartbeat");
-            
-            client.writeTextSync('SEQ_HEARTBEAT');
-            
-            client.on('data', (buf: Buffer) => {
-                const response = buf.toString();
-                console.log("[HOST] received heartbeat response from sequencer:", response);
-                client.end();
-                
-                if (response === '1') {
-                    resolve(true);
-                } else {
-                    resolve(false);
-                }
-            });
-        });
-        
-        // Add a timeout to handle connection issues
-        setTimeout(() => {
-            reject(new Error("Heartbeat timeout - no response from sequencer"));
-        }, 5000);
-    });
+    try {
+        const response = await talk<string>('SEQ_HEARTBEAT');
+        return response === '1';
+    } catch (error) {
+        console.error("[HOST] heartbeat failed:", error);
+        return false;
+    }
 }
 
 // ---------------------------------------------------------------------------
