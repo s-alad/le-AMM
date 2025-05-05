@@ -132,7 +132,7 @@ app.get("/publickey", handler(async (_req, res) => {
     }
 }));
 
-app.post(
+app.get(
     "/attest",
     handler(async (_req, res) => {
         const testification = await testify();
