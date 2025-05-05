@@ -16,6 +16,24 @@ const seqpubhex = "0x" + Buffer.from(
   getPublicKey(crypto.randomBytes(32).toString('hex'), false)
 ).toString("hex");
 
+// generate an attestation document
+function attest(): Buffer {
+  console.log("[SEQ] generating attestation document");
+  try {
+    let fd = open();
+    let attestDoc = getAttestationDoc(
+      fd,
+      null,
+      Buffer.from(crypto.randomBytes(32)),
+      Buffer.from(seqpubhex.substring(2), 'hex')
+    );
+    return attestDoc;
+  } catch (e) {
+    console.error("[SEQ] error generating attestation document:", e);
+    throw e;
+  }
+}
+
 // create vsock server
 const server = new VsockServer();
 const port = 9001;
@@ -44,25 +62,19 @@ server.on('connection', (socket: VsockSocket) => {
       console.log("[SEQ] (heartbeat) sending heartbeat");
       socket.writeTextSync('1');
     }
+    
+    if (request === 'SEQ_ATTESTATION') {
+      console.log("[SEQ] (attestation) generating and sending attestation document");
+      try {
+        const attestDoc = attest();
+        socket.writeTextSync(attestDoc.toString('base64'));
+      } catch (error) {
+        console.error("[SEQ] attestation error:", error);
+        socket.writeTextSync('ERROR');
+      }
+    }
   });
 });
-
-// app.get('/attestation', async (req, res) => {
-//   // https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html#doc-def
-//   try {
-//   let fd = open();
-//   let attestDoc = getAttestationDoc(
-//     fd,
-//     null,
-//     Buffer.from(crypto.randomBytes(32)),
-//     Buffer.from(sequencerPubHex.substring(2), 'hex')
-//   );
-//     res.send(attestDoc);
-//   } catch (e) {
-//     console.error("Error getting attestation document:", e);
-//     res.status(500).send("Error getting attestation document");
-//   }
-// });
 
 // start the server
 server.listen(port);

@@ -80,6 +80,24 @@ async function beat(): Promise<boolean> {
     }
 }
 
+// get attestation document from sequencer
+async function testify(): Promise<Buffer | null> {
+    console.log("[HOST] requesting attestation document from sequencer");
+    try {
+        const b64r = await talk<string>('SEQ_ATTESTATION');
+        
+        if (b64r === 'ERROR') {
+            console.error("[HOST] sequencer failed to generate attestation document");
+            return null;
+        }
+        
+        return Buffer.from(b64r, 'base64');
+    } catch (error) {
+        console.error("[HOST] attestation request failed:", error);
+        return null;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Express app
 // ---------------------------------------------------------------------------
@@ -114,10 +132,18 @@ app.get("/publickey", handler(async (_req, res) => {
     }
 }));
 
-app.post(
+app.get(
     "/attest",
-    handler(async (req, res) => {
-        return null;
+    handler(async (_req, res) => {
+        const testification = await testify();
+        
+        if (!testification) {
+            return res.status(500).json({ error: "failed to get attestation document from sequencer" });
+        }
+        
+        // return the attestation document
+        res.setHeader('Content-Type', 'application/octet-stream');
+        return res.send(testification);
     })
 );
 
@@ -142,7 +168,7 @@ async function initialize() {
         seqpubkey = await spk();
         
         // start the express server after we have the public key
-        app.listen(port, () => {
+        app.listen(port, '0.0.0.0', () => {
             console.log(`[HOST] ACTIVE @ http://localhost:${port}`);
             console.log(`[SEQ] PUBLIC KEY: ${seqpubkey}`);
             console.log(`[SEQ] ADDRESS: ${pubToAddress(seqpubkey)}`);
