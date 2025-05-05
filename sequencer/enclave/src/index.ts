@@ -3,7 +3,7 @@
 // handles TEE actions
 //
 
-import crypto from 'crypto';
+import crypto, { randomBytes } from 'crypto';
 import { getPublicKey } from "@noble/secp256k1";
 import { pubToAddress } from "@cryptography/core/decryption";
 import { VsockServer, VsockSocket } from 'node-vsock';
@@ -14,38 +14,47 @@ import { SwapRequest } from "@cryptography/core/constants";
 console.log("[SEQ] ONLINE");
 
 // generate a new random private key and corresponding public key
-const seqprivatekey = crypto.randomBytes(32).toString('hex');
+const seqprivatekey = randomBytes(32);
+const seqprivatekeyhex = seqprivatekey.toString('hex');
 const seqpubhex = "0x" + Buffer.from(
   getPublicKey(seqprivatekey, false)
 ).toString("hex");
+const seqpubkeybuf = Buffer.from(seqpubhex.substring(2), 'hex');
 
 // generate an attestation document
-function attest(nonce?: Buffer): Buffer {
-  console.log("[SEQ] generating attestation document");
-  let fd = open(); 
+function attest(nonce: Buffer): Buffer {
+  console.log("[SEQ] generating attestation document with nonce");
+  let fd = -1;
   try {
+    fd = open();
+    console.log(`[SEQ] NSM device opened (fd: ${fd})`);
     let attestDoc = getAttestationDoc(
       fd,
       null,
-      nonce, // Use the provided nonce
-      Buffer.from(seqpubhex.substring(2), 'hex')
+      nonce,
+      seqpubkeybuf
     );
+    console.log(`[SEQ] Attestation document generated, closing fd: ${fd}`);
     close(fd);
+    fd = -1;
     return attestDoc;
   } catch (e) {
     console.error("[SEQ] error generating attestation document:", e);
-    console.log("error:", e);
-    close(fd);
+    if (fd !== -1) {
+      console.log(`[SEQ] Closing NSM device (fd: ${fd}) due to error`);
+      close(fd);
+    }
     throw e;
   }
 }
+
 
 // Process a swap request by decrypting it
 async function swapping(strenvelope: string): Promise<SwapRequest | string> {
   console.log("[SEQ] processing swap request");
   try {
     const envelope: EncryptedEnvelope = JSON.parse(strenvelope);
-    const sr = await decryptEciesEnvelope(envelope, seqprivatekey);
+    const sr = await decryptEciesEnvelope(envelope, seqprivatekeyhex);
     console.log("[SEQ] successfully decrypted swap request:", sr);
     return sr;
   } catch (error: any) {
@@ -64,68 +73,31 @@ server.on('error', (err: Error) => {
 
 server.on('connection', (socket: VsockSocket) => {
   console.log("[SEQ] new connection from host");
-  
+
   socket.on('error', (err) => {
     console.error("[SEQ] socket error:", err);
   });
-  
+
   socket.on('data', (buf: Buffer) => {
     const request = buf.toString();
     console.log("[SEQ] received request:", request);
-    
+
     if (request === 'SEQ_PUBLICKEY') {
       console.log("[SEQ] (publickey) sending public key:", seqpubhex);
       socket.writeTextSync(seqpubhex);
+      socket.end();
     }
 
     if (request === 'SEQ_HEARTBEAT') {
       console.log("[SEQ] (heartbeat) sending heartbeat");
       socket.writeTextSync('1');
+      socket.end();
     }
-    
-    if (request === 'SEQ_ATTESTATION') {
-      console.log("[SEQ] (attestation) generating and sending attestation document");
-      try {
-        const d = attest();
-        socket.writeTextSync(d.toString('base64'));
-      } catch (error) {
-        console.error("[SEQ] attestation error:", error);
-        socket.writeTextSync('ERROR');
-      }
-    }
-    
-    if (request.startsWith('SEQ_ATTESTATION:')) {
-      console.log("[SEQ] (attestation) generating and sending attestation document");
-      const [, nonceHex] = request.split('SEQ_ATTESTATION:', 2);
-      let nonceBuffer: Buffer | undefined;
-      if (nonceHex && nonceHex.length > 0) {
-        try {
-          nonceBuffer = Buffer.from(nonceHex, 'hex');
-          console.log("[SEQ] using provided nonce:", nonceHex);
-        } catch (e) {
-          console.error("[SEQ] invalid nonce format received:", nonceHex, e);
-          socket.writeTextSync('ERROR:Invalid nonce format');
-          return;
-        }
-      } else {
-        console.log("[SEQ] no nonce provided, using null");
-        // Allow null nonce if desired, otherwise handle as error
-        // nonceBuffer = undefined; // or handle error
-      }
 
-      try {
-        const d = attest(nonceBuffer); // Pass nonce buffer to attest
-        socket.writeTextSync(d.toString('base64'));
-      } catch (error) {
-        console.error("[SEQ] attestation error:", error);
-        socket.writeTextSync('ERROR');
-      }
-    }
-    
     if (request.startsWith('SEQ_SWAP:')) {
       console.log("[SEQ] received swap request");
       const [, strenvelope] = request.split('SEQ_SWAP:', 2);
-      
+
       swapping(strenvelope).then(result => {
         if (typeof result === 'string') {
           socket.writeTextSync(result);
@@ -135,7 +107,35 @@ server.on('connection', (socket: VsockSocket) => {
       }).catch(error => {
         console.error("[SEQ] error processing swap:", error);
         socket.writeTextSync(`ERROR:${error.message || 'Unknown error'}`);
+      }).finally(() => {
+        socket.end();
       });
+    }
+
+    if (request.startsWith('SEQ_ATTESTATION:')) {
+      const [, noncehex] = request.split(':', 2);
+      console.log(`[SEQ] received attestation request with nonce: ${noncehex}`);
+
+      if (!noncehex || noncehex.length === 0) {
+        console.error("[SEQ] empty nonce received");
+        socket.writeTextSync('ERROR:Empty nonce received');
+        socket.end();
+        return;
+      }
+
+      try {
+        const nb = Buffer.from(noncehex, 'hex');
+        if (nb.length > 64) throw new Error('Nonce exceeds max length');
+        console.log("[SEQ] parsed nonce buffer length:", nb.length);
+        const doc = attest(nb);
+        console.log(`[SEQ] sending attestation document (base64) to host`);
+        socket.writeTextSync(doc.toString('base64'));
+      } catch (error) {
+        console.error("[SEQ] error:", error);
+        socket.writeTextSync(`ERROR:${error instanceof Error ? error.message : 'Attestation failed'}`);
+      } finally {
+        socket.end();
+      }
     }
   });
 });

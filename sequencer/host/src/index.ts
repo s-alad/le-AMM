@@ -32,47 +32,80 @@ function handler(fn: (req: Request, res: Response, next: NextFunction) => Promis
 
 // generic vsock communication function
 async function talk<T>(message: string, timeout = 5000): Promise<T> {
-    console.log(`[HOST] sending message to sequencer: ${message}`);
+    console.log(`[HOST] sending message to sequencer: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`);
     return new Promise((resolve, reject) => {
-        const client = new VsockSocket();
-        
+        let client: VsockSocket | null = new VsockSocket();
+        let ctime: NodeJS.Timeout | null = null;
+        let rtime: NodeJS.Timeout | null = null;
+        let connected = false;
+
+        const cleanup = () => {
+            if (ctime) clearTimeout(ctime);
+            if (rtime) clearTimeout(rtime);
+            if (client) {
+                client.removeAllListeners();
+                client.end();
+                client = null;
+            }
+        };
+
         client.on('error', (err: Error) => {
             console.error("[HOST] vsock client error:", err);
-            reject(err);
+            if (!connected) {
+                reject(new Error(`[HOST] vsock connection failed: ${err.message}`));
+            } else {
+                reject(new Error(`[HOST] vsock communication error: ${err.message}`));
+            }
+            cleanup();
         });
-        
-        console.log("[HOST] attempting to connect to sequencer via vsock");
+
+        client.on('close', () => {
+            console.log("[HOST] vsock connection closed.");
+            cleanup();
+        });
+
+        console.log(`[HOST] attempting to connect to vsock cid=${seqcid} port=${seqport}`);
+
+        ctime = setTimeout(() => {
+            reject(new Error(`[HOST] vsock connection timeout after ${timeout}ms`));
+            cleanup();
+        }, timeout);
+
         client.connect(seqcid, seqport, () => {
+            connected = true;
+            if (ctime) clearTimeout(ctime);
             console.log("[HOST] connected to sequencer via vsock");
-            
-            client.writeTextSync(message);
-            
-            client.on('data', (buf: Buffer) => {
+
+            client!.writeTextSync(message);
+
+            rtime = setTimeout(() => {
+                reject(new Error(`[HOST] timeout - no response from sequencer after ${timeout}ms`));
+                cleanup();
+            }, timeout);
+
+            client!.on('data', (buf: Buffer) => {
+                if (rtime) clearTimeout(rtime);
+                rtime = null;
                 const response = buf.toString();
-                console.log(`[HOST] received response from sequencer: ${response}`);
-                client.end();
+                console.log(`[HOST] received response from sequencer: ${response.substring(0, 100)}${response.length > 100 ? '...' : ''}`);
                 resolve(response as unknown as T);
+                cleanup();
             });
         });
-        
-        // timeout
-        setTimeout(() => {
-            reject(new Error(`[HOST] timeout - no response from sequencer after ${timeout}ms`));
-        }, timeout);
     });
 }
 
 // get sequencer public key via vsock
 async function spk(): Promise<string> {
     console.log("[HOST] fetching sequencer public key via vsock");
-    return talk<string>('SEQ_PUBLICKEY');
+    return talk<string>('SEQ_PUBLICKEY', 6000);
 }
 
 // check if the sequencer is alive 
 async function beat(): Promise<boolean> {
     console.log("[HOST] sending heartbeat to sequencer");
     try {
-        const response = await talk<string>('SEQ_HEARTBEAT');
+        const response = await talk<string>('SEQ_HEARTBEAT', 2000);
         return response === '1';
     } catch (error) {
         console.error("[HOST] heartbeat failed:", error);
@@ -81,18 +114,25 @@ async function beat(): Promise<boolean> {
 }
 
 // get attestation document from sequencer
-async function testify(nonceHex: string): Promise<Buffer | null> {
-    console.log("[HOST] requesting attestation document from sequencer with nonce:", nonceHex);
+async function testify(noncehex: string): Promise<Buffer | null> {
+    console.log("[HOST] requesting attestation document from sequencer with nonce:", noncehex);
     try {
-        const message = `SEQ_ATTESTATION:${nonceHex}`;
-        const b64r = await talk<string>(message);
-        
-        if (b64r === 'ERROR') {
-            console.error("[HOST] sequencer failed to generate attestation document");
+        const message = `SEQ_ATTESTATION:${noncehex}`;
+        const b64r = await talk<string>(message, 8000);
+
+        if (b64r.startsWith('ERROR:') || b64r === 'ERROR') {
+            console.error("[HOST] sequencer returned error for attestation:", b64r.substring(6));
             return null;
         }
-        
-        return Buffer.from(b64r, 'base64');
+
+        try {
+            return Buffer.from(b64r, 'base64');
+        } catch (decodeError) {
+            console.error("[HOST] failed to decode base64 attestation document from sequencer:", decodeError);
+            console.error("[HOST] received raw response:", b64r);
+            return null;
+        }
+
     } catch (error) {
         console.error("[HOST] attestation request failed:", error);
         return null;
@@ -129,14 +169,14 @@ app.get("/health", handler(async (_req, res) => {
     if (alive) {
         res.send("ok");
     } else {
-        res.status(500).send("not ok");
+        res.status(503).send("not ok");
     }
 }));
 
 app.get("/info", (_req, res) => {
     res.json({
         address: pubToAddress(seqpubkey),
-        publicKey: seqpubkey, 
+        publicKey: seqpubkey,
     });
 });
 
@@ -156,25 +196,29 @@ app.get(
     handler(async (req, res) => {
         const nonce = req.query.nonce;
 
-        if (!nonce || typeof nonce !== 'string') {
-            return res.status(400).json({ error: "Nonce query parameter is required and must be a string" });
+        if (!nonce || typeof nonce !== 'string' || nonce.length === 0) {
+            console.warn(`[HOST] /attest bad request: Nonce query parameter is required and must be a non-empty string. Received: ${nonce}`);
+            return res.status(400).json({ error: "Nonce query parameter is required and must be a non-empty string" });
         }
 
-        // Optional: Add validation for nonce format (e.g., hex) if needed
-        // const hexRegex = /^[0-9a-fA-F]+$/;
-        // if (!hexRegex.test(nonce)) {
-        //     return res.status(400).json({ error: "Nonce must be a valid hex string" });
-        // }
-
-        const testification = await testify(nonce);
-        
-        if (!testification) {
-            return res.status(500).json({ error: "failed to get attestation document from sequencer" });
+        const hexregex = /^[0-9a-fA-F]+$/;
+        if (!hexregex.test(nonce) || nonce.length % 2 !== 0 || nonce.length < 32 || nonce.length > 64) {
+            console.warn(`[HOST] /attest bad request: Nonce must be a valid hex string with an even number of characters (32-64 characters). Received: ${nonce}`);
+            return res.status(400).json({ error: "Nonce must be a valid hex string with an even number of characters (32-64 characters)" });
         }
-        
-        // return the attestation document
-        res.setHeader('Content-Type', 'application/octet-stream');
-        return res.send(testification);
+
+        console.log(`[HOST] requesting attestation with nonce: ${nonce}`);
+        const docbuf = await testify(nonce);
+
+        if (!docbuf) {
+            console.error("[HOST] failed to get attestation document from sequencer");
+            return res.status(500).json({ error: "Failed to get attestation document from sequencer" });
+        }
+
+        console.log(`[HOST] sending attestation document (length: ${docbuf.length})`);
+        res.setHeader('Content-Type', 'application/cbor');
+        res.setHeader('Content-Disposition', 'attachment; filename="attestation.cbor"');
+        return res.status(200).send(docbuf);
     })
 );
 
@@ -182,11 +226,19 @@ app.post(
     "/swap",
     handler(async (req, res) => {
         const envelope: EncryptedEnvelope = req.body;
+        if (!envelope || typeof envelope !== 'object' || !envelope.ephPub || !envelope.iv || !envelope.tag || !envelope.data) {
+            console.warn("[HOST] /swap bad request: Invalid envelope structure");
+            return res.status(400).json({ error: "Invalid swap request envelope structure" });
+        }
+
+        console.log("[HOST] forwarding encrypted swap request to sequencer");
         const sr = await fwdswap(envelope);
-        
+
         if (sr) {
+            console.log("[HOST] successfully processed swap request");
             res.json(sr);
         } else {
+            console.error("[HOST] failed to process swap request");
             res.status(500).json({ error: "failed to process swap request" });
         }
     })
@@ -197,7 +249,7 @@ app.get(
     handler(async (_req, res) => {
         try {
             console.log("[HOST] testing swap flow");
-            
+
             // Create a fake swap request
             const testSwap: SwapRequest = {
                 address: "0xTestAddress123456789",
@@ -205,39 +257,39 @@ app.get(
                 tokenOut: "USDC",
                 amount: "1000000000000000000" // 1 ETH in wei
             };
-            
+
             console.log("[HOST] created test swap request:", testSwap);
-            
+
             // Step 1: Encrypt the swap with the sequencer's public key
             if (!seqpubkey) {
                 return res.status(500).json({ error: "Sequencer public key not available" });
             }
-            
+
             console.log("[HOST] encrypting test swap with sequencer public key:", seqpubkey);
             const envelope = await encryptForSequencer(testSwap, seqpubkey);
-            
+
             // Step 2: Forward the encrypted envelope to the sequencer
             console.log("[HOST] forwarding encrypted test swap to sequencer");
             const decryptedSwap = await fwdswap(envelope);
-            
+
             if (!decryptedSwap) {
                 return res.status(500).json({ error: "Sequencer failed to decrypt test swap" });
             }
-            
+
             // Step 3: Compare original and decrypted swap to verify integrity
-            const swapMatches = 
+            const swapMatches =
                 decryptedSwap.address === testSwap.address &&
                 decryptedSwap.tokenIn === testSwap.tokenIn &&
                 decryptedSwap.tokenOut === testSwap.tokenOut &&
                 decryptedSwap.amount === testSwap.amount;
-            
+
             // Return test results
             return res.json({
                 success: swapMatches,
                 original: testSwap,
                 decrypted: decryptedSwap,
-                message: swapMatches ? 
-                    "Swap test successful! The sequencer correctly decrypted the swap." : 
+                message: swapMatches ?
+                    "Swap test successful! The sequencer correctly decrypted the swap." :
                     "Swap test failed. The decrypted swap doesn't match the original."
             });
         } catch (error: any) {
@@ -249,7 +301,7 @@ app.get(
 
 // error handler
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error(err.stack);
+    console.error("[HOST] Unhandled error:", err.stack || err.message || err);
     res.status(500).json({ error: "internal" });
 });
 
@@ -259,7 +311,7 @@ const port = Number(process.env.PORT) || 8080;
 async function initialize() {
     try {
         seqpubkey = await spk();
-        
+
         // start the express server after we have the public key
         app.listen(port, '0.0.0.0', () => {
             console.log(`[HOST] ACTIVE V1 @ http://localhost:${port}`);
