@@ -32,10 +32,12 @@ export async function encryptForSequencer(
   const tag     = cipher.getAuthTag();
 
   /* 5.   Return the envelope the sequencer understands */
-  return {
-    ephPub : Buffer.from(ephPub).toString('hex'),      // no 0x
-    iv     : iv.toString('base64'),
-    tag    : tag.toString('base64'),
-    data   : ct.toString('base64')
+  const envelope: EncryptedEnvelope = {
+    ephPub: Buffer.from(ephPub).toString('hex'),      // no 0x
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+    data: ct.toString('base64')
   };
+  
+  return envelope;
 }
