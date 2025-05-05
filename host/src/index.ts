@@ -39,6 +39,7 @@ function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => P
 
 // Function to fetch sequencer public key via vsock
 async function fetchSequencerPublicKey(): Promise<string> {
+    console.log("Init Fetching sequencer public key via vsock");
     return new Promise((resolve, reject) => {
         const client = new VsockSocket();
         
@@ -47,6 +48,7 @@ async function fetchSequencerPublicKey(): Promise<string> {
             reject(err);
         });
         
+        console.log("Attempt Connecting to sequencer via vsock");
         client.connect(sequencerCid, sequencerPort, () => {
             console.log("Connected to sequencer via vsock");
             
