@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { getPublicKey } from "@noble/secp256k1";
 import { pubToAddress } from "./cryptography/decryption.js";
 import { VsockServer, VsockSocket } from 'node-vsock';
+import { getAttestationDoc, open } from 'aws-nitro-enclaves-nsm-node';
 
 console.log("[SEQ] ONLINE");
 
@@ -45,6 +46,23 @@ server.on('connection', (socket: VsockSocket) => {
     }
   });
 });
+
+// app.get('/attestation', async (req, res) => {
+//   // https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html#doc-def
+//   try {
+//   let fd = open();
+//   let attestDoc = getAttestationDoc(
+//     fd,
+//     null,
+//     Buffer.from(crypto.randomBytes(32)),
+//     Buffer.from(sequencerPubHex.substring(2), 'hex')
+//   );
+//     res.send(attestDoc);
+//   } catch (e) {
+//     console.error("Error getting attestation document:", e);
+//     res.status(500).send("Error getting attestation document");
+//   }
+// });
 
 // start the server
 server.listen(port);
