@@ -12,6 +12,7 @@ import { getPublicKey } from "@noble/secp256k1";
 import { SwapRequest } from "./cryptography/constants";
 import crypto from 'crypto';
 import { VsockSocket } from 'node-vsock';
+import { encryptForSequencer } from "./cryptography/encryption";
 
 // ---------------------------------------------------------------------------
 // config & helpers
@@ -175,6 +176,61 @@ app.post(
             res.json(sr);
         } else {
             res.status(500).json({ error: "failed to process swap request" });
+        }
+    })
+);
+
+app.get(
+    "/test-swap",
+    handler(async (_req, res) => {
+        try {
+            console.log("[HOST] testing swap flow");
+            
+            // Create a fake swap request
+            const testSwap: SwapRequest = {
+                address: "0xTestAddress123456789",
+                tokenIn: "ETH",
+                tokenOut: "USDC",
+                amount: "1000000000000000000" // 1 ETH in wei
+            };
+            
+            console.log("[HOST] created test swap request:", testSwap);
+            
+            // Step 1: Encrypt the swap with the sequencer's public key
+            if (!seqpubkey) {
+                return res.status(500).json({ error: "Sequencer public key not available" });
+            }
+            
+            console.log("[HOST] encrypting test swap with sequencer public key:", seqpubkey);
+            const envelope = await encryptForSequencer(testSwap, seqpubkey);
+            
+            // Step 2: Forward the encrypted envelope to the sequencer
+            console.log("[HOST] forwarding encrypted test swap to sequencer");
+            const decryptedSwap = await fwdswap(envelope);
+            
+            if (!decryptedSwap) {
+                return res.status(500).json({ error: "Sequencer failed to decrypt test swap" });
+            }
+            
+            // Step 3: Compare original and decrypted swap to verify integrity
+            const swapMatches = 
+                decryptedSwap.address === testSwap.address &&
+                decryptedSwap.tokenIn === testSwap.tokenIn &&
+                decryptedSwap.tokenOut === testSwap.tokenOut &&
+                decryptedSwap.amount === testSwap.amount;
+            
+            // Return test results
+            return res.json({
+                success: swapMatches,
+                original: testSwap,
+                decrypted: decryptedSwap,
+                message: swapMatches ? 
+                    "Swap test successful! The sequencer correctly decrypted the swap." : 
+                    "Swap test failed. The decrypted swap doesn't match the original."
+            });
+        } catch (error: any) {
+            console.error("[HOST] test-swap error:", error);
+            return res.status(500).json({ error: "Test swap failed", details: error.message });
         }
     })
 );
