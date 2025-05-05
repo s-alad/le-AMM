@@ -1,0 +1,6 @@
+// Token addresses
+export const TOKEN_ADDRESSES = {
+    'TromerToken': '0x25070E4f267187bcE3d29ad2A29cF83544EF1C32',
+    'LeToken': '0x5A605C69b0469FC41Cc5aB8839847B84b3CF8007',
+    'SimpleToken': '0x4FCbf45947C20778Aa9D9134cA12d058C23164a6'
+  };

@@ -130,7 +130,7 @@ html, body {
 }
 
 
-=.amount-row {
+.amount-row {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;        
@@ -301,4 +301,272 @@ html, body {
     top: calc(100% - 60px);
     opacity: 0;
   }
+}
+
+/* Add these styles to your CSS */
+.expected-output {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+}
+
+.output-amount {
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.calculating {
+  color: #888;
+  font-style: italic;
+}
+
+.price-info {
+  margin-top: 15px;
+  padding: 10px;
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.exchange-rate, .price-impact, .liquidity-info {
+  margin-bottom: 8px;
+}
+
+.high-impact {
+  color: #ff4136;
+  font-weight: bold;
+}
+
+/* Slippage Settings Styles */
+.swap-settings {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  margin: 12px;
+  z-index: 20;
+}
+
+.settings-btn {
+  display: flex;
+  align-items: center;
+  background: rgba(20, 24, 50, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: #fff;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.settings-icon {
+  margin-right: 6px;
+  font-size: 16px;
+}
+
+.settings-text {
+  font-weight: 500;
+}
+
+.settings-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.slippage-settings {
+  background: rgba(20, 24, 50, 0.95);
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 18px;
+  font-size: 14px;
+  position: absolute;
+  right: 0;
+  width: 280px;
+  z-index: 30;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  transform: translateX(50%);
+  right: 40%;
+}
+
+.swap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+}
+
+.slippage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.slippage-header h4 {
+  margin: 0;
+  font-size: 16px;
+  color: #fff;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #fff;
+}
+
+.slippage-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.slippage-options button {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.slippage-options button.selected {
+  background: #ff0080;
+  color: white;
+  border-color: #ff0080;
+}
+
+.custom-slippage {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.custom-slippage input {
+  width: 80px;
+  padding: 8px 28px 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.custom-slippage .percentage {
+  position: absolute;
+  right: 55px;
+  color: #aaa;
+  pointer-events: none;
+}
+
+.custom-slippage button {
+  margin-left: 5px;
+}
+
+.slippage-info {
+  color: #aaa;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.expected-min-output {
+  background: rgba(20, 24, 50, 0.6);
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 0.9rem;
+  text-align: left;
+  color: #ddd;
+}
+
+.expected-min-output div {
+  margin-bottom: 6px;
+}
+
+.slippage-indicator {
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+/* Mint Button Styles */
+.mint-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 20px;
+}
+
+.mint-btn {
+  font-size: 0.9rem;
+  padding: 8px 16px;
+}
+
+.mint-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.mint-amount-input {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #fff;
+  width: 100px;
+}
+
+.mint-message {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  color: #aaa;
+}
+
+.btn-text {
+  background: none;
+  border: none;
+  color: #aaa;
+  padding: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.btn-text:hover {
+  color: #fff;
+}
+
+/* Separator line */
+.separator {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 16px 0;
+  width: 100%;
+}
+
+/* Container for the mint button at bottom of swap card */
+.mint-button-container {
+  margin-top: 4px;
+}
+
+/* Style the mint button to be less prominent than the swap button */
+.mint-button-container .mint-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.85rem;
+  padding: 8px 14px;
+}
+
+.mint-button-container .mint-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+/* Adjust the mint input group to fit the card better */
+.mint-button-container .mint-input-group {
+  width: 100%;
+  justify-content: center;
 }
