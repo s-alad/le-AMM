@@ -5,7 +5,7 @@
 
 import crypto from 'crypto';
 import { getPublicKey } from "@noble/secp256k1";
-import { pubToAddress } from "@cryptography/decryption.js";
+import { pubToAddress } from "@cryptography/core/decryption";
 import { VsockServer, VsockSocket } from 'node-vsock';
 import { getAttestationDoc, open, close } from 'aws-nitro-enclaves-nsm-node';
 import { decryptEciesEnvelope, EncryptedEnvelope } from "@cryptography/core/decryption";
