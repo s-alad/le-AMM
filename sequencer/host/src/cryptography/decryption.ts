@@ -5,7 +5,7 @@
 import { getSharedSecret } from '@noble/secp256k1';
 import { keccak_256 }      from '@noble/hashes/sha3';
 import crypto from 'crypto';
-import { cleanHex, SwapRequest } from './constants';
+import { cleanHex, SwapRequest } from './constants.js';
 
 export interface EncryptedEnvelope {
   ephPub: string;   // hex, uncompressed (65 bytes)
@@ -48,7 +48,7 @@ export async function decryptEciesEnvelope(
     throw new Error('Peer pubkey must be 130 hex chars (uncompressed)');
 
   /* 1. Shared secret */
-  const shared = await getSharedSecret(
+  const shared = getSharedSecret(
     priv,
     peer,
     false

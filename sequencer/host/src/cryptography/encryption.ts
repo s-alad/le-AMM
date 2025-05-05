@@ -4,8 +4,8 @@
 //
 import { utils, getSharedSecret, getPublicKey } from '@noble/secp256k1';
 import crypto from 'crypto';
-import { EncryptedEnvelope } from './decryption';
-import { cleanHex, SwapRequest } from './constants';
+import { EncryptedEnvelope } from './decryption.js';
+import { cleanHex, SwapRequest } from './constants.js';
 
 /** Returns an envelope ready to POST to the sequencer. */
 export async function encryptForSequencer(

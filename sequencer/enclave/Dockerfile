@@ -1,5 +1,14 @@
 FROM node:20-slim
 WORKDIR /app
+# Copy cryptography module first
+COPY cryptography/package.json cryptography/package-lock.json ./cryptography/
+WORKDIR /app/cryptography
+RUN npm ci
+COPY cryptography/tsconfig.json ./
+COPY cryptography/src ./src
+RUN npm run build
+# Switch back to main app directory
+WORKDIR /app
 # Copy dependency files
 COPY package.json package-lock.json ./
 COPY vendor ./vendor

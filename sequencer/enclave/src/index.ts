@@ -5,11 +5,11 @@
 
 import crypto from 'crypto';
 import { getPublicKey } from "@noble/secp256k1";
-import { pubToAddress } from "./cryptography/decryption.js";
+import { pubToAddress } from "@cryptography/decryption.js";
 import { VsockServer, VsockSocket } from 'node-vsock';
 import { getAttestationDoc, open } from 'aws-nitro-enclaves-nsm-node';
-import { decryptEciesEnvelope, EncryptedEnvelope } from "./cryptography/decryption.js";
-import { SwapRequest } from "./cryptography/constants.js";
+import { decryptEciesEnvelope, EncryptedEnvelope } from "@cryptography/core/decryption";
+import { SwapRequest } from "@cryptography/core/constants";
 
 console.log("[SEQ] ONLINE");
 

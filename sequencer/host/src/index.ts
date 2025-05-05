@@ -7,12 +7,12 @@
 
 import express, { Request, Response, NextFunction } from 'express';
 import "dotenv/config";
-import { decryptEciesEnvelope, EncryptedEnvelope, pubToAddress } from "./cryptography/decryption";
+import { decryptEciesEnvelope, EncryptedEnvelope, pubToAddress } from "@cryptography/core/decryption";
 import { getPublicKey } from "@noble/secp256k1";
-import { SwapRequest } from "./cryptography/constants";
+import { SwapRequest } from "@cryptography/core/constants";
 import crypto from 'crypto';
 import { VsockSocket } from 'node-vsock';
-import { encryptForSequencer } from "./cryptography/encryption";
+import { encryptForSequencer } from "@cryptography/core/encryption";
 
 // ---------------------------------------------------------------------------
 // config & helpers

@@ -7,17 +7,16 @@ import crypto from 'crypto';
 import { EncryptedEnvelope } from './decryption.js';
 import { cleanHex, SwapRequest } from './constants.js';
 
-// Put your sequencer PUBLIC key here (the 0x04… string from derive.ts)
-const sequencerPubHex = '';
 /** Returns an envelope ready to POST to the sequencer. */
 export async function encryptForSequencer(
-  swap: SwapRequest
+  swap: SwapRequest,
+  sequencerPubHex: string
 ): Promise<EncryptedEnvelope> {
   /* 1.   Generate an ephemeral key-pair (one-off per message) */
   const ephPriv = utils.randomPrivateKey();           // Uint8Array(32)
   const ephPub  = getPublicKey(ephPriv, false);       // 65-byte, uncompressed
 
-  /* 2.   ECDH → shared secret with sequencer’s pub key */
+  /* 2.   ECDH → shared secret with sequencer's pub key */
   const shared  = await getSharedSecret(ephPriv, cleanHex(sequencerPubHex), false);
 
   /* 3.   Derive 32-byte AES-GCM key (SHA-256) */
