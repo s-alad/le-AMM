@@ -41,7 +41,4 @@ RUN npm run build
 EXPOSE 4000
 
 # Command to run the application.
-# CMD ["/usr/local/bin/node", "/app/sequencer/enclave/dist/index.js"] # Original CMD
-# CMD ["/usr/local/bin/node", "/app/sequencer/enclave/dist/index.js"] # Original CMD
-# CMD ["ls", "-l", "/app/sequencer/enclave/"] # Previous debug CMD
-CMD ["ls", "-l", "/app/sequencer/enclave/dist"] 
+CMD ["/usr/local/bin/node", "/app/sequencer/enclave/dist/sequencer/index.js"] # <-- Correct path
