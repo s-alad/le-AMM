@@ -36,7 +36,12 @@ if (!TEEAMM_CONTRACT_ADDRESS || !/^0x[a-fA-F0-9]{40}$/.test(TEEAMM_CONTRACT_ADDR
 }
 
 // --- Initialize Viem Clients ---
-const guardianAccount = privateKeyToAccount(GUARDIAN_PRIVATE_KEY);
+// Ensure private key has 0x prefix
+const formattedPrivateKey = GUARDIAN_PRIVATE_KEY.startsWith('0x') 
+    ? GUARDIAN_PRIVATE_KEY 
+    : `0x${GUARDIAN_PRIVATE_KEY}` as Hex;
+
+const guardianAccount = privateKeyToAccount(formattedPrivateKey);
 
 const publicClient = createPublicClient({
   chain: sepolia,

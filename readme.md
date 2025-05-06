@@ -16,3 +16,18 @@
 ### ATTESTATION
 - https://edgebit.io/attestation/ 
 - https://emn178.github.io/online-tools/base64_decode.html
+
+### RUN
+0. contract/.env
+    - SEPOLIA_RPC_URL=
+    - SEQUENCER_PRIV_HEX=
+1. npx hardhat ignition deploy ignition/modules/TEEAMM.ts --network sepolia
+2. run enclave
+3. contract/GUARDIAN.script.ts
+    - contract address
+    - enclave public key
+4. host/.env
+    - SEPOLIA_RPC_URL=
+    - GUARDIAN_PRIVATE_KEY= (sam as SEQUENCER_PRIV_HEX)
+    - TEEAMM_CONTRACT_ADDRESS=
+3. 
