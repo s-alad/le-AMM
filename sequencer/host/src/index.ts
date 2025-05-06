@@ -7,11 +7,11 @@
 
 import express, { Request, Response, NextFunction } from 'express';
 import "dotenv/config";
-import { decryptEciesEnvelope, EncryptedEnvelope, pubToAddress } from "@cryptography/core/decryption";
+import { decryptEciesEnvelope } from "@cryptography/core/decryption";
 import { getPublicKey } from "@noble/secp256k1";
-import { SwapRequest } from "@cryptography/core/constants";
+import { SwapRequest, EncryptedEnvelope, pubToAddress} from "@cryptography/core/constants";
 import { VsockSocket } from 'node-vsock';
-import { encryptForSequencer } from "@cryptography/core/encryption";
+import { encryptEciesEnvelope } from "@cryptography/core/encryption";
 
 // ---------------------------------------------------------------------------
 // config & helpers
@@ -255,7 +255,11 @@ app.get(
                 address: "0xTestAddress123456789",
                 tokenIn: "ETH",
                 tokenOut: "USDC",
-                amount: "1000000000000000000" // 1 ETH in wei
+                amountIn: '1',
+                amountOut: '1',
+                directPayout: true,
+                nonce: '1',
+                fee: '0'
             };
 
             console.log("[HOST] created test swap request:", testSwap);
@@ -266,7 +270,7 @@ app.get(
             }
 
             console.log("[HOST] encrypting test swap with sequencer public key:", seqpubkey);
-            const envelope = await encryptForSequencer(testSwap, seqpubkey);
+            const envelope = await encryptEciesEnvelope(testSwap, seqpubkey);
 
             // Step 2: Forward the encrypted envelope to the sequencer
             console.log("[HOST] forwarding encrypted test swap to sequencer");
@@ -281,7 +285,11 @@ app.get(
                 decryptedSwap.address === testSwap.address &&
                 decryptedSwap.tokenIn === testSwap.tokenIn &&
                 decryptedSwap.tokenOut === testSwap.tokenOut &&
-                decryptedSwap.amount === testSwap.amount;
+                decryptedSwap.amountIn === testSwap.amountIn &&
+                decryptedSwap.amountOut === testSwap.amountOut &&
+                decryptedSwap.directPayout === testSwap.directPayout &&
+                decryptedSwap.nonce === testSwap.nonce &&
+                decryptedSwap.fee === testSwap.fee;
 
             // Return test results
             return res.json({
