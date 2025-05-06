@@ -12,10 +12,43 @@ import { getPublicKey } from "@noble/secp256k1";
 import { SwapRequest, EncryptedEnvelope, pubToAddress } from "@cryptography/core/constants";
 import { VsockSocket } from 'node-vsock';
 import { encryptEciesEnvelope } from "@cryptography/core/encryption";
+import { Address, Chain, fallback, Hex } from 'viem';
+import { http } from 'viem';
+import { createWalletClient } from 'viem';
+import { createPublicClient } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { sepolia } from 'viem/chains';
 
 // ---------------------------------------------------------------------------
 // config & helpers
 // ---------------------------------------------------------------------------
+
+// --- Ethereum Guardian Config ---
+const GUARDIAN_PRIVATE_KEY = process.env.GUARDIAN_PRIVATE_KEY as Hex | undefined;
+const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL;
+const TEEAMM_CONTRACT_ADDRESS = process.env.TEEAMM_CONTRACT_ADDRESS as Address | undefined;
+
+// --- Validate required config ---
+if (!GUARDIAN_PRIVATE_KEY) throw new Error("Missing GUARDIAN_PRIVATE_KEY in environment variables.");
+if (!SEPOLIA_RPC_URL) throw new Error("Missing SEPOLIA_RPC_URL in environment variables.");
+if (!TEEAMM_CONTRACT_ADDRESS || !/^0x[a-fA-F0-9]{40}$/.test(TEEAMM_CONTRACT_ADDRESS)) {
+    throw new Error("Missing or invalid TEEAMM_CONTRACT_ADDRESS in environment variables.");
+}
+
+// --- Initialize Viem Clients ---
+const guardianAccount = privateKeyToAccount(GUARDIAN_PRIVATE_KEY);
+
+const publicClient = createPublicClient({
+  chain: sepolia,
+  transport: http(SEPOLIA_RPC_URL),
+});
+const walletClient = createWalletClient({
+  account: guardianAccount,
+  chain: sepolia,
+  transport: http(SEPOLIA_RPC_URL),
+});
+console.log(`[HOST] Guardian Address: ${guardianAccount.address}`);
+console.log(`[HOST] TEEAMM Contract: ${TEEAMM_CONTRACT_ADDRESS}`);
 
 // vsock connection config
 const seqcid = 16;
@@ -163,6 +196,59 @@ async function fwdswap(envelope: EncryptedEnvelope): Promise<boolean> {
     }
 }
 
+async function relay(txData: Hex) {
+    if (!txData || !/^0x[0-9a-fA-F]+$/.test(txData)) {
+        console.error("[HOST] invalid transaction data received from enclave.");
+        return; // Don't attempt to send invalid data
+    }
+
+    try {
+        // 1. Estimate Gas (Optional but recommended)
+        let estimatedGas: bigint | undefined;
+        try {
+            estimatedGas = await publicClient.estimateGas({
+                account: guardianAccount,
+                to: TEEAMM_CONTRACT_ADDRESS,
+                data: txData,
+            });
+            console.log(`[HOST] Estimated gas: ${estimatedGas}`);
+            // Add a buffer to the estimate (e.g., 20%)
+            estimatedGas = (estimatedGas * 120n) / 100n;
+        } catch (gasError: any) {
+            console.error(`[HOST] Gas estimation failed: ${gasError.message}. Using fallback gas limit.`);
+            // TODO: Set a reasonable fallback gas limit based on expected batch size
+            estimatedGas = 5000000n; // Example fallback limit - ADJUST AS NEEDED
+        }
+
+        // 2. Get Current Nonce (use 'pending' to avoid conflicts if batches are sent quickly)
+        const nonce = await publicClient.getTransactionCount({
+            address: guardianAccount.address,
+            blockTag: 'pending',
+        });
+        console.log(`[HOST] Using nonce: ${nonce}`);
+
+        // 3. Send Transaction (Viem handles EIP-1559 fees automatically if supported)
+        console.log("[HOST] Sending transaction to network...");
+        const txHash = await walletClient.sendTransaction({
+            account: guardianAccount,
+            to: TEEAMM_CONTRACT_ADDRESS,
+            data: txData,
+            nonce: nonce,
+            gas: estimatedGas, // Provide estimated gas
+            // Viem calculates maxFeePerGas/maxPriorityFeePerGas automatically based on chain config
+            // chain: TARGET_CHAIN, // Already set in walletClient
+        });
+
+        console.log(`[HOST] Batch transaction successfully relayed! Tx Hash: ${txHash}`);
+        // TODO: Potentially monitor transaction status using publicClient.waitForTransactionReceipt({ hash: txHash })
+
+    } catch (error: any) {
+        console.error("[HOST] Error relaying batch transaction:", error.message || error);
+        // TODO: Implement error handling/alerting/retry logic if needed
+        // Potentially notify enclave of failure? Requires protocol change.
+    }
+}
+
 function persist() {
     if (persistentsocket || persisting) {
         console.log("[HOST] persistent connection already active or attempting connection.");
@@ -182,15 +268,7 @@ function persist() {
             if (message.startsWith('SEQ_BATCH_TX:')) {
                 const txData = message.substring('SEQ_BATCH_TX:'.length);
                 console.log(`[HOST] received raw batch transaction data (length: ${txData.length})`);
-                
-                // Here you would relay this transaction data directly to the blockchain
-                // For example with ethers.js:
-                // const tx = await wallet.sendTransaction({
-                //     to: TEEAMM_CONTRACT_ADDRESS,
-                //     data: txData
-                // });
-                
-                // For now, just log receipt
+                relay(`0x${txData}`);
                 console.log("[HOST] would relay transaction: ", txData.substring(0, 50) + "...");
             }
             if (message === 'ACK_PERSIST') {
