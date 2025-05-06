@@ -90,7 +90,7 @@ async function talk<T>(message: string, timeout = 5000): Promise<T> {
                 if (rtime) clearTimeout(rtime);
                 rtime = null;
                 const response = buf.toString();
-                console.log(`[HOST] received response from sequencer: ${response.substring(0, 100)}${response.length > 100 ? '...' : ''}`);
+                console.log(`[HOST] received transient response from sequencer: ${response.substring(0, 100)}${response.length > 100 ? '...' : ''}`);
                 resolve(response as unknown as T);
                 cleanup();
             });
@@ -177,7 +177,7 @@ function persist() {
         socket.on('data', (buf: Buffer) => {
             const message = buf.toString();
             const logMessage = message.length > 100 ? `${message.substring(0, 100)}...` : message;
-            console.log(`[HOST] Received data on persistent channel: ${logMessage}`);
+            console.log(`[HOST] received data on persistent channel: ${logMessage}`);
 
             if (message.startsWith('SEQ_BATCH_TX:')) {
                 const tx = message.substring('SEQ_BATCH_TX:'.length);
@@ -207,7 +207,8 @@ function persist() {
     }
 
     socket.connect(seqcid, seqport, () => {
-        console.log("[HOST] persistent connection established. registering...");
+        console.log("[HOST] persistent connection established");
+        console.log("[HOST] registering with sequencer");
         persisting = false;
         persistentsocket = socket;
 

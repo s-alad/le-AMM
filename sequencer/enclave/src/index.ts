@@ -74,7 +74,7 @@ async function swapping(strenvelope: string): Promise<boolean> {
 	try {
 		const envelope: EncryptedEnvelope = JSON.parse(strenvelope);
 		const sr = await decryptEciesEnvelope(envelope, seqprivatekeyhex);
-		console.log("[SEQ] Successfully decrypted swap request for user:", sr.user);
+		console.log("[SEQ] successfully decrypted swap request for user:", sr.user);
 		if (!checkswap(sr)) {
 			console.error("[SEQ] invalid swap request received");
 			return false;
@@ -90,11 +90,11 @@ async function swapping(strenvelope: string): Promise<boolean> {
 
 async function sendbatch() {
 	if (batch.length === 0) {
-		console.log("[SEQ] no swaps to send");
+		console.log("[SEQ][BATCH] no swaps to send");
 		return;
 	}
 
-	console.log(`[SEQ] Creating batch transaction for ${batch.length} swaps.`);
+	console.log(`[SEQ][BATCH] creating batch transaction for ${batch.length} swaps.`);
 	const xbatch = [...batch];
 	batch = [];
 
@@ -126,21 +126,21 @@ async function sendbatch() {
 			args: [formatted],
 		});
 
-		console.log(`[SEQ] encoded batchSwap transaction data: ${tx.substring(0, 74)}... (length: ${tx.length})`);
+		console.log(`[SEQ][BATCH] encoded batch transaction data: ${tx.substring(0, 74)}... (length: ${tx.length})`);
 
 		// Send data back to host via the established connection
 		if (vsockconnection && !vsockconnection.destroyed) {
-			console.log("[SEQ] sending transaction data to host...");
+			console.log("[SEQ][BATCH] sending transaction data to host");
 			vsockconnection.writeTextSync(`SEQ_BATCH_TX:${tx}`);
 			// TODO: Implement ACK mechanism from host?
 		} else {
-			console.error("[SEQ] No active VSock connection to host to send batch transaction data. Re-queuing batch.");
+			console.error("[SEQ][BATCH] no active VSock connection to host to send batch transaction data. re-queuing batch.");
 			batch.unshift(...xbatch);
 		}
 
 	} catch (error) {
-		console.error("[SEQ] Error creating, encoding, or sending batch transaction:", error);
-		console.log("[SEQ] Re-queuing failed batch due to error.");
+		console.error("[SEQ][BATCH] error creating, encoding, or sending batch transaction:", error);
+		console.log("[SEQ][BATCH] re-queuing failed batch due to error.");
 		batch.unshift(...xbatch);
 	}
 }
@@ -278,7 +278,7 @@ console.log(`[SEQ] ADDRESS: ${pubToAddress(seqpubhex)}`);
 
 setInterval(async () => { // batching
 	if (batch.length > 0) {
-		console.log("[SEQ] processing batch of size:", batch.length);
+		console.log("[SEQ][BATCH] processing batch of size:", batch.length);
 		await sendbatch();
 	}
 }, 10000);
