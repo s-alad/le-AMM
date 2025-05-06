@@ -1,6 +1,6 @@
 import crypto, { randomBytes } from 'crypto';
-import { encodeFunctionData, isAddress, type Address } from 'viem';
-import { getPublicKey } from "@noble/secp256k1";
+import { encodeFunctionData, isAddress, type Address, keccak256 as viemKeccak256, toBytes, encodeAbiParameters } from 'viem';
+import { getPublicKey, sign } from "@noble/secp256k1";
 import { pubToAddress, EncryptedEnvelope } from "@cryptography/core/constants";
 import { VsockServer, VsockSocket } from 'node-vsock';
 import { getAttestationDoc, open, close } from 'aws-nitro-enclaves-nsm-node';
@@ -36,6 +36,11 @@ const teeammabi = [
 					{ "name": "deadline", "type": "uint64" }
 				],
 				"internalType": "struct TEEAMM.SwapIntent[]"
+			},
+			{
+				"name": "enclaveSignature",
+				"type": "bytes",
+				"internalType": "bytes"
 			}
 		],
 		"outputs": [],
@@ -119,27 +124,63 @@ async function sendbatch() {
 			}
 		});
 
-		// encode function data using viem
-		const tx = encodeFunctionData({
+		// 1. Encode the swap array directly using ABI encoding
+		const abiEncodedData = encodeAbiParameters(
+			[{ 
+				type: 'tuple[]', 
+				components: [
+					{ name: 'user', type: 'address' },
+					{ name: 'tokenIn', type: 'address' },
+					{ name: 'tokenOut', type: 'address' },
+					{ name: 'amountIn', type: 'uint128' },
+					{ name: 'minOut', type: 'uint128' },
+					{ name: 'directPayout', type: 'bool' },
+					{ name: 'nonce', type: 'uint64' },
+					{ name: 'deadline', type: 'uint64' }
+				] 
+			}],
+			[formatted]
+		);
+		
+		// 2. Hash the encoded data using keccak256 (Ethereum's hash function)
+		const dataHash = viemKeccak256(abiEncodedData);
+		console.log(`[SEQ][BATCH] data hash: ${dataHash}`);
+		
+		// 3. Create ethereum prefixed message hash
+		const ethMessage = `\x19Ethereum Signed Message:\n32${dataHash.slice(2)}`;
+		const ethMessageBytes = toBytes(ethMessage);
+		const ethSignedHash = viemKeccak256(ethMessageBytes);
+		
+		// 4. Sign the hash using our sequencer private key
+		const sigObj = sign(ethSignedHash.slice(2), seqprivatekeyhex);
+		
+		// Create a canonical Ethereum signature
+		const r = sigObj.r.toString(16).padStart(64, '0');
+		const s = sigObj.s.toString(16).padStart(64, '0');
+		const v = sigObj.recovery + 27;
+		const signatureHex = `0x${r}${s}${v.toString(16).padStart(2, '0')}` as `0x${string}`;
+		
+		// 5. Create the complete transaction data (function selector + encoded args)
+		const completeTransactionData = encodeFunctionData({
 			abi: teeammabi,
 			functionName: 'batchSwap',
-			args: [formatted],
+			args: [formatted, signatureHex]
 		});
-
-		console.log(`[SEQ][BATCH] encoded batch transaction data: ${tx.substring(0, 74)}... (length: ${tx.length})`);
-
-		// Send data back to host via the established connection
+		
+		console.log(`[SEQ][BATCH] Complete transaction data: ${completeTransactionData.substring(0, 74)}... (length: ${completeTransactionData.length})`);
+		
+		// Send the transaction data to the host
 		if (vsockconnection && !vsockconnection.destroyed) {
 			console.log("[SEQ][BATCH] sending transaction data to host");
-			vsockconnection.writeTextSync(`SEQ_BATCH_TX:${tx}`);
-			// TODO: Implement ACK mechanism from host?
+			// Send just the raw transaction data
+			vsockconnection.writeTextSync(`SEQ_BATCH_TX:${completeTransactionData}`);
 		} else {
 			console.error("[SEQ][BATCH] no active VSock connection to host to send batch transaction data. re-queuing batch.");
 			batch.unshift(...xbatch);
 		}
 
 	} catch (error) {
-		console.error("[SEQ][BATCH] error creating, encoding, or sending batch transaction:", error);
+		console.error("[SEQ][BATCH] error creating, encoding, or signing batch transaction:", error);
 		console.log("[SEQ][BATCH] re-queuing failed batch due to error.");
 		batch.unshift(...xbatch);
 	}

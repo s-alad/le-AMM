@@ -180,8 +180,18 @@ function persist() {
             console.log(`[HOST] received data on persistent channel: ${logMessage}`);
 
             if (message.startsWith('SEQ_BATCH_TX:')) {
-                const tx = message.substring('SEQ_BATCH_TX:'.length);
-                console.log("[HOST] received batch tx:", tx);
+                const txData = message.substring('SEQ_BATCH_TX:'.length);
+                console.log(`[HOST] received raw batch transaction data (length: ${txData.length})`);
+                
+                // Here you would relay this transaction data directly to the blockchain
+                // For example with ethers.js:
+                // const tx = await wallet.sendTransaction({
+                //     to: TEEAMM_CONTRACT_ADDRESS,
+                //     data: txData
+                // });
+                
+                // For now, just log receipt
+                console.log("[HOST] would relay transaction: ", txData.substring(0, 50) + "...");
             }
             if (message === 'ACK_PERSIST') {
                 console.log("[HOST] ACK_PERSIST from enclave for batch sink.");
