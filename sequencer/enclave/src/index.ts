@@ -267,7 +267,7 @@ server.on('connection', (socket: VsockSocket) => {
 });
 
 server.listen(port);
-console.log(`[SEQ] ACTIVE V2 @ ${port}`);
+console.log(`[SEQ] ACTIVE V3 @ ${port}`);
 console.log(`[SEQ] PUBLIC KEY: ${seqpubhex}`);
 console.log(`[SEQ] ADDRESS: ${pubToAddress(seqpubhex)}`);
 // #endregion

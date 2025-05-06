@@ -372,7 +372,7 @@ async function initialize() {
 
         // start the express server after we have the public key
         app.listen(port, '0.0.0.0', () => {
-            console.log(`[HOST] ACTIVE V1 @ http://localhost:${port}`);
+            console.log(`[HOST] ACTIVE V3 @ http://localhost:${port}`);
             console.log(`[SEQ] PUBLIC KEY: ${seqpubkey}`);
             console.log(`[SEQ] ADDRESS: ${pubToAddress(seqpubkey)}`);
         });
