@@ -6,6 +6,7 @@ import { VsockServer, VsockSocket } from 'node-vsock';
 import { getAttestationDoc, open, close } from 'aws-nitro-enclaves-nsm-node';
 import { decryptEciesEnvelope } from "@cryptography/core/decryption";
 import { SwapRequest } from "@cryptography/core/constants";
+import { privateKeyToAccount } from 'viem/accounts';
 
 console.log("[SEQ] ONLINE");
 
@@ -14,6 +15,7 @@ console.log("[SEQ] ONLINE");
 
 const seqprivatekey = randomBytes(32);
 const seqprivatekeyhex = seqprivatekey.toString('hex');
+const enclaveAccount = privateKeyToAccount(`0x${seqprivatekeyhex}`);
 const seqpubhex = "0x" + Buffer.from(getPublicKey(seqprivatekey, false)).toString("hex");
 const seqpubkeybuf = Buffer.from(seqpubhex.substring(2), 'hex');
 const contract = "";
@@ -124,59 +126,48 @@ async function sendbatch() {
 			}
 		});
 
-		// 1. Encode the swap array directly using ABI encoding
-		const abiEncodedData = encodeAbiParameters(
-			[{ 
-				type: 'tuple[]', 
-				components: [
-					{ name: 'user', type: 'address' },
-					{ name: 'tokenIn', type: 'address' },
-					{ name: 'tokenOut', type: 'address' },
-					{ name: 'amountIn', type: 'uint128' },
-					{ name: 'minOut', type: 'uint128' },
-					{ name: 'directPayout', type: 'bool' },
-					{ name: 'nonce', type: 'uint64' },
-					{ name: 'deadline', type: 'uint64' }
-				] 
+		// 1. ABI-encode the swap intents array (this is the core data to sign over)
+		const abiEncodedIntents = encodeAbiParameters(
+			[{
+				type: 'tuple[]', name: 'xs', components: [
+					{ name: 'user', type: 'address' }, { name: 'tokenIn', type: 'address' },
+					{ name: 'tokenOut', type: 'address' }, { name: 'amountIn', type: 'uint128' },
+					{ name: 'minOut', type: 'uint128' }, { name: 'directPayout', type: 'bool' },
+					{ name: 'nonce', type: 'uint64' }, { name: 'deadline', type: 'uint64' }
+				]
 			}],
-			[formatted]
+			[formatted] // Pass the array as the value for the single tuple[] parameter
 		);
-		
-		// 2. Hash the encoded data using keccak256 (Ethereum's hash function)
-		const dataHash = viemKeccak256(abiEncodedData);
-		console.log(`[SEQ][BATCH] data hash: ${dataHash}`);
-		
-		// 3. Create ethereum prefixed message hash
-		const ethMessage = `\x19Ethereum Signed Message:\n32${dataHash.slice(2)}`;
-		const ethMessageBytes = toBytes(ethMessage);
-		const ethSignedHash = viemKeccak256(ethMessageBytes);
-		
-		// 4. Sign the hash using our sequencer private key
-		const sigObj = sign(ethSignedHash.slice(2), seqprivatekeyhex);
-		
-		// Create a canonical Ethereum signature
-		const r = sigObj.r.toString(16).padStart(64, '0');
-		const s = sigObj.s.toString(16).padStart(64, '0');
-		const v = sigObj.recovery + 27;
-		const signatureHex = `0x${r}${s}${v.toString(16).padStart(2, '0')}` as `0x${string}`;
-		
-		// 5. Create the complete transaction data (function selector + encoded args)
+
+		// 2. Calculate the Keccak256 hash of the encoded intents
+		const dataHash = viemKeccak256(abiEncodedIntents);
+		console.log(`[SEQ][BATCH] Intents data hash: ${dataHash}`);
+
+		// --- <<< CHANGED: Signing using Viem Account >>> ---
+		// 3. Sign the hash using the enclave's account object
+		//    `signMessage` with raw hash automatically applies "\x19Ethereum Signed Message:\n32" prefix
+		const signatureHex = await enclaveAccount.signMessage({
+			message: { raw: dataHash }
+		});
+		console.log(`[SEQ][BATCH] Enclave signature: ${signatureHex.substring(0, 74)}...`);
+		// --- <<< End of Viem Signing Change >>> ---
+
+		// 4. Encode the *complete* call data for batchSwap(SwapIntent[] memory xs, bytes memory enclaveSignature)
 		const completeTransactionData = encodeFunctionData({
 			abi: teeammabi,
 			functionName: 'batchSwap',
-			args: [formatted, signatureHex]
+			args: [formatted, signatureHex] // Pass BOTH arguments: the intents array and the signature
 		});
-		
-		console.log(`[SEQ][BATCH] Complete transaction data: ${completeTransactionData.substring(0, 74)}... (length: ${completeTransactionData.length})`);
-		
-		// Send the transaction data to the host
+
+		console.log(`[SEQ][BATCH] Complete tx data for host: ${completeTransactionData.substring(0, 74)}... (len: ${completeTransactionData.length})`);
+
+		// 5. Send complete tx data to host via persistent connection
 		if (vsockconnection && !vsockconnection.destroyed) {
-			console.log("[SEQ][BATCH] sending transaction data to host");
-			// Send just the raw transaction data
+			console.log("[SEQ][BATCH] Sending complete tx data to host...");
 			vsockconnection.writeTextSync(`SEQ_BATCH_TX:${completeTransactionData}`);
 		} else {
-			console.error("[SEQ][BATCH] no active VSock connection to host to send batch transaction data. re-queuing batch.");
-			batch.unshift(...xbatch);
+			console.error("[SEQ][BATCH] No persistent host connection. Re-queuing batch.");
+			batch.unshift(...xbatch); // Add back
 		}
 
 	} catch (error) {
@@ -256,7 +247,7 @@ server.on('connection', (socket: VsockSocket) => {
 			});
 
 			// acknowledge registration
-			try { console.log("[SEQ] sending ACK_PERSIST"); socket.writeTextSync("ACK_PERSIST"); } 
+			try { console.log("[SEQ] sending ACK_PERSIST"); socket.writeTextSync("ACK_PERSIST"); }
 			catch (e) { console.error("[SEQ] Failed to send ACK_PERSIST", e); vsockconnection = null; socket.end(); }
 
 			// --- KEEP ALIVE ---
@@ -267,11 +258,11 @@ server.on('connection', (socket: VsockSocket) => {
 				if (request === 'SEQ_PUBLICKEY') {
 					console.log("[SEQ] sending public key");
 					response = seqpubhex;
-				} 
+				}
 				if (request === 'SEQ_HEARTBEAT') {
 					console.log("[SEQ] sending heartbeat");
 					response = '1';
-				} 
+				}
 				if (request.startsWith('SEQ_SWAP:')) {
 					console.log("[SEQ] processing swap request");
 					const [, strenvelope] = request.split('SEQ_SWAP:', 2);
