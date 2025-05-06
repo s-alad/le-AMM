@@ -4,6 +4,7 @@ pragma solidity ^0.8.25;
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -20,13 +21,14 @@ contract TEEAMM is ReentrancyGuard {
     uint256 public constant BP_BASE         = 10_000; // Basis points denominator
     
     /* ─── Roles & Config ────────────────────────────────────────────────── */
-    address public immutable guardian;
-    address public immutable treasury;
-    address public sequencer;
+    address public immutable treasury;      // host / relayer
+    address public immutable guardian;      // host / relayer
+    address public sequencer;               // enclave
     IWETH  public immutable WETH;
     uint16 public protocolFeeBP;
 
     event ProtocolFeeUpdated(uint16 newBP);
+    event SequencerUpdated(address indexed oldSequencer, address indexed newSequencer);
     
     /* ─── Vault balances & nonces ───────────────────────────────────────── */
     mapping(address => mapping(IERC20 => uint256)) public balances;
@@ -102,12 +104,13 @@ contract TEEAMM is ReentrancyGuard {
         FailureReason reason
     );
     event BatchExecuted(uint256 successCount, uint256 failCount);
+    error InvalidEnclaveSignature(address recovered, address expected);
     event RevenueClaimed(address indexed treasury, IERC20 indexed token, uint256 amount);
 
     constructor(
-        address _sequencer,
-        address _guardian,
-        address _treasury,
+        address _sequencer, // empheral address to be replaced with the enclave's address
+        address _guardian,  // host / relayer
+        address _treasury,  // host / relayer
         IWETH _weth,
         uint16  _protocolBP
     ) {
@@ -127,6 +130,14 @@ contract TEEAMM is ReentrancyGuard {
     modifier onlySequencer() { require(msg.sender == sequencer, "!sequencer"); _; }
     modifier onlyGuardian()  { require(msg.sender == guardian,  "!guardian");  _; }
     modifier onlyTreasury()  { require(msg.sender == treasury,  "!treasury");  _; }
+
+    // TODO: only allow sequencer updates if attested on chain
+    function updateSequencerAddress(address newSequencer) external onlyGuardian {
+        require(newSequencer != address(0), "invalid address");
+        address oldSequencer = sequencer;
+        sequencer = newSequencer;
+        emit SequencerUpdated(oldSequencer, newSequencer);
+    }
 
     /* ===== Helper functions ===== */
     function _getPoolKey(IERC20 tokenA, IERC20 tokenB) internal pure returns (bytes32 poolKey, IERC20 token0, IERC20 token1) {
@@ -282,58 +293,73 @@ contract TEEAMM is ReentrancyGuard {
     }
 
     /* =====================================================================
-     *  BATCH SWAP
+     * BATCH SWAP (MODIFIED)
      * ===================================================================== */
-    function batchSwap(SwapIntent[] calldata xs) external onlySequencer {
-        require(xs.length > 0 && xs.length <= MAX_BATCH, "invalid batch");
-        uint256 ok = 0;
-        uint256 fail = 0;
+    /**
+     * @notice Executes a batch of swaps provided the signature matches the current sequencer address.
+     * @dev Called by the guardian (host/relayer) after receiving the batch and signature from the enclave.
+     * @param xs Array of swap intents.
+     * @param enclaveSignature Signature from the registered ephemeral enclave key over keccak256(abi.encode(xs)).
+     */
+    function batchSwap(
+        SwapIntent[] calldata xs,       // The actual swap data
+        bytes calldata enclaveSignature // Signature from the enclave's ephemeral key
+    ) external onlyGuardian nonReentrant {
+        require(xs.length > 0 && xs.length <= MAX_BATCH, "invalid batch size");
+
+        // --- NEW: Verify Enclave Signature ---
+        bytes32 dataHash = keccak256(abi.encode(xs)); // Hash the provided swap data exactly as it arrived
         
+        // Create the Ethereum Signed Message hash manually
+        bytes32 ethSignedHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", dataHash)
+        );
+        
+        // Recover the signer using the Ethereum signed hash
+        address recoveredAddress = ECDSA.recover(ethSignedHash, enclaveSignature);
+
+        // Check if the signer matches the currently registered ephemeral sequencer address (case-insensitive)
+        if (recoveredAddress != sequencer) {
+            revert InvalidEnclaveSignature(recoveredAddress, sequencer);
+        }
+        // --- End Signature Check ---
+
+        // --- Execute Internal Batch Logic ---
+        // Note: _executeBatchInternal remains unchanged from your previous version
+        (uint256 okCount, uint256 failCount) = _executeBatchInternal(xs);
+        emit BatchExecuted(okCount, failCount); // Renamed event for clarity
+    }
+
+    // Internal function containing the original batchSwap execution logic
+    // This remains unchanged from your version.
+    function _executeBatchInternal(SwapIntent[] memory xs)
+        internal returns (uint256 okCount, uint256 failCount)
+    {
+        SwapIntent memory s; FailureReason reason; uint256 protoFee; uint128 tradeIn; bool okPrice; uint256 outAmt; // Declare vars outside loop for efficiency
+
         for (uint256 i = 0; i < xs.length; i++) {
-            SwapIntent calldata s = xs[i];
-            FailureReason reason = FailureReason.NONE;
-            
-            if (s.nonce != userNonce[s.user]) {
-                reason = FailureReason.NONCE_MISMATCH;
-            } else if (s.deadline < block.timestamp) {
-                reason = FailureReason.EXPIRED;
-            } else if (balances[s.user][s.tokenIn] < s.amountIn) {
-                reason = FailureReason.INSUFFICIENT_BALANCE;
+            s = xs[i]; reason = FailureReason.NONE;
+            if (s.nonce != userNonce[s.user]) { reason = FailureReason.NONCE_MISMATCH;
+            } else if (s.deadline < block.timestamp) { reason = FailureReason.EXPIRED;
+            } else if (balances[s.user][s.tokenIn] < s.amountIn) { reason = FailureReason.INSUFFICIENT_BALANCE;
             } else {
-                uint256 protoFee = uint256(s.amountIn) * protocolFeeBP / BP_BASE;
-                uint128 tradeIn  = uint128(uint256(s.amountIn) - protoFee);
-                (bool okPrice, uint256 outAmt) = _quoteAndUpdate(
-                    s.tokenIn, s.tokenOut, tradeIn, s.minOut
-                );
-                
-                if (!okPrice) {
-                    reason = FailureReason.PRICING_FAILED;
+                require(uint256(s.amountIn) * protocolFeeBP <= type(uint128).max * BP_BASE, "fee calc overflow"); // Safety check
+                protoFee = uint256(s.amountIn) * protocolFeeBP / BP_BASE;
+                require(uint256(s.amountIn) >= protoFee, "fee exceeds amount"); // Ensure underflow doesn't occur
+                tradeIn = uint128(uint256(s.amountIn) - protoFee);
+                (okPrice, outAmt) = _quoteAndUpdate(s.tokenIn, s.tokenOut, tradeIn, s.minOut);
+                if (!okPrice) { reason = FailureReason.PRICING_FAILED;
                 } else {
-                    balances[s.user][s.tokenIn]     -= s.amountIn;
-                    balances[treasury][s.tokenIn]   += protoFee;
-                    
-                    if (s.directPayout) {
-                        s.tokenOut.safeTransfer(s.user, outAmt);
-                    } else {
-                        balances[s.user][s.tokenOut] += outAmt;
-                    }
-                    
+                    balances[s.user][s.tokenIn] -= s.amountIn; balances[treasury][s.tokenIn] += protoFee;
+                    if (s.directPayout) { s.tokenOut.safeTransfer(s.user, outAmt); } else { balances[s.user][s.tokenOut] += outAmt; }
                     userNonce[s.user] = s.nonce + 1;
-                    emit Swap(
-                        s.user, s.tokenIn, s.tokenOut,
-                        s.amountIn, outAmt, s.directPayout,
-                        s.nonce, protoFee
-                    );
-                    ok++;
-                    continue;
+                    emit Swap( s.user, s.tokenIn, s.tokenOut, s.amountIn, outAmt, s.directPayout, s.nonce, protoFee );
+                    okCount++; continue; // Skip failure emission
                 }
             }
-            
-            emit SwapFailed(i, s.user, reason);
-            fail++;
+            emit SwapFailed(i, s.user, reason); failCount++;
         }
-        
-        emit BatchExecuted(ok, fail);
+        return (okCount, failCount);
     }
 
     /* ===== Internal pricing and reserve update ===== */
