@@ -1,61 +1,61 @@
-// message.ts - Test encryption and decryption
 import { getPublicKey } from '@noble/secp256k1';
 import { randomBytes } from 'node:crypto';
 import { SwapRequest } from './constants.js';
-import { encryptForSequencer } from './encryption.js';
+import { encryptEciesEnvelope } from './encryption.js';
 import { decryptEciesEnvelope } from './decryption.js';
 
 /**
- * Tests the encryption and decryption workflow
- * @returns A promise that resolves to true if the test succeeds
+ * tests the encryption and decryption workflow
  */
-export async function testEncryptionAndDecryption(): Promise<boolean> {
-  console.log('Testing encryption and decryption...');
+export async function message(): Promise<boolean> {
+  console.log('testing encryption and decryption...');
 
-  // 1. Generate a sequencer keypair for testing
-  const sequencerPrivateKey = randomBytes(32); // Use Node's crypto for random bytes
+  const sequencerPrivateKey = randomBytes(32);
   const sequencerPublicKey = getPublicKey(sequencerPrivateKey, false);
   const sequencerPrivHex = sequencerPrivateKey.toString('hex');
   const sequencerPubHex = Buffer.from(sequencerPublicKey).toString('hex');
 
-  console.log(`Generated test sequencer keypair:`);
-  console.log(`Private key: ${sequencerPrivHex}`);
-  console.log(`Public key: ${sequencerPubHex}`);
+  console.log(`generated test sequencer keypair:`);
+  console.log(`private key: ${sequencerPrivHex}`);
+  console.log(`public key: ${sequencerPubHex}`);
 
-  // 2. Create a sample swap request
-  const sampleSwap: SwapRequest = {
-    address: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
-    tokenIn: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC
-    tokenOut: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH
-    amount: '1000000000' // 1000 USDC (with 6 decimals)
+  const sample: SwapRequest = {
+    address: "0x0000000000000000000000000000000000000000",
+    tokenIn: "0x0000000000000000000000000000000000000000",
+    tokenOut: "0x0000000000000000000000000000000000000000",
+    amountIn: "0",
+    amountOut: "0",
+    directPayout: false,
+    nonce: "0",
+    fee: "0"
   };
 
-  console.log('Sample swap request:', sampleSwap);
+  console.log('sample:', sample);
 
-  // 3. Encrypt the swap request
-  console.log('Encrypting swap request...');
-  const encryptedEnvelope = await encryptForSequencer(sampleSwap, sequencerPubHex);
-  console.log('Encrypted envelope:', encryptedEnvelope);
+  console.log('encrypting swap request...');
+  const encrypted = await encryptEciesEnvelope(sample, sequencerPubHex);
+  console.log('encrypted:', encrypted);
 
-  // 4. Decrypt the swap request
-  console.log('Decrypting swap request...');
-  const decryptedSwap = await decryptEciesEnvelope(encryptedEnvelope, sequencerPrivHex);
-  console.log('Decrypted swap request:', decryptedSwap);
+  console.log('decrypting swap request...');
+  const decrypted = await decryptEciesEnvelope(encrypted, sequencerPrivHex);
+  console.log('decrypted:', decrypted);
 
-  // 5. Verify the decrypted data matches the original
-  const isEqual = 
-    decryptedSwap.address === sampleSwap.address &&
-    decryptedSwap.tokenIn === sampleSwap.tokenIn &&
-    decryptedSwap.tokenOut === sampleSwap.tokenOut &&
-    decryptedSwap.amount === sampleSwap.amount;
+  const eq = 
+    decrypted.address === sample.address &&
+    decrypted.tokenIn === sample.tokenIn &&
+    decrypted.tokenOut === sample.tokenOut &&
+    decrypted.amountIn === sample.amountIn &&
+    decrypted.amountOut === sample.amountOut &&
+    decrypted.directPayout === sample.directPayout &&
+    decrypted.nonce === sample.nonce &&
+    decrypted.fee === sample.fee;
 
-  console.log('Decryption successful:', isEqual);
-  return isEqual;
+  console.log('decryption successful:', eq);
+  return eq;
 }
 
-// Run the test when this file is executed directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  testEncryptionAndDecryption()
+  message()
     .then(success => {
       if (!success) {
         console.error('Test failed');

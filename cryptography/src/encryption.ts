@@ -1,14 +1,8 @@
-// encrypt.ts  (browser, Node, or React Native)
-//
-//   npm add @noble/secp256k1 @noble/hashes
-//
 import { getSharedSecret, getPublicKey } from '@noble/secp256k1';
-import { createHash, randomBytes, createCipheriv } from 'node:crypto'; // Use node: prefix for clarity
-import { EncryptedEnvelope } from './decryption.js';
-import { cleanHex, SwapRequest } from './constants.js';
+import { createHash, randomBytes, createCipheriv } from 'node:crypto';
+import { cleanHex, EncryptedEnvelope, SwapRequest } from './constants.js';
 
-/** Returns an envelope ready to POST to the sequencer. */
-export async function encryptForSequencer(
+export async function encryptEciesEnvelope(
   swap: SwapRequest,
   sequencerPubHex: string
 ): Promise<EncryptedEnvelope> {
@@ -32,7 +26,6 @@ export async function encryptForSequencer(
     ]);
     const tag     = cipher.getAuthTag();
 
-    /* 5.   Return the envelope the sequencer understands */
     return {
       ephPub: Buffer.from(ephPub).toString('hex'),      // no 0x
       iv: iv.toString('base64'),
@@ -40,8 +33,7 @@ export async function encryptForSequencer(
       data: ct.toString('base64')
     };
   } catch (error) {
-    // Rethrow any errors after logging
-    console.error("Error encrypting swap request:", error);
+    console.error("error encrypting swap request:", error);
     throw error;
   }
 }

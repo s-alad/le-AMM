@@ -12,6 +12,7 @@
 import { promises as fs } from 'node:fs';
 import { getPublicKey }   from '@noble/secp256k1';
 import { keccak_256 }     from '@noble/hashes/sha3';
+import { pubToAddress } from './constants.js';
 
 async function loadPrivKey(file: string): Promise<string> {
   const hex = (await fs.readFile(file, 'utf8')).trim().replace(/^0x/, '');
@@ -24,23 +25,6 @@ async function loadPrivKey(file: string): Promise<string> {
 export function privToPub(privHex: string): string {
   const pub = getPublicKey(privHex, false);           // 65 bytes, uncompressed
   return '0x' + Buffer.from(pub).toString('hex');
-}
-
-function toChecksumAddress(addrHex: string): string {
-  const addrHash = keccak_256(addrHex);
-  let check = '0x';
-  for (let i = 0; i < addrHex.length; i++) {
-    const nibble = parseInt(addrHash[Math.floor(i / 2)].toString(16), 16);
-    check += (nibble >> (i % 2 === 0 ? 4 : 0)) & 0x8 ? addrHex[i].toUpperCase() : addrHex[i].toLowerCase();
-  }
-  return check;
-}
-
-function pubToAddress(pubHex: string): string {
-  const pubBytes = Buffer.from(pubHex.slice(4), 'hex');    // drop 0x04
-  const hash     = keccak_256(pubBytes);
-  const addrHex  = Buffer.from(hash.slice(-20)).toString('hex');
-  return toChecksumAddress(addrHex);
 }
 
 (async () => {
