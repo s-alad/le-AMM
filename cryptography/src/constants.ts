@@ -30,12 +30,12 @@ export interface EncryptedEnvelope {
 }
 
 export interface SwapRequest {
-  address: string;
-  tokenIn: string;
-  tokenOut: string;
-  amountIn: string;
-  amountOut: string;
-  directPayout: boolean;
-  nonce: string;
-  fee: string;
+  user: string;         // User's address (ensure it's checksummed later)
+  tokenIn: string;      // Address of token being sent in
+  tokenOut: string;     // Address of token desired out
+  amountIn: string;     // Amount of tokenIn (as string for large numbers)
+  minOut: string;       // Minimum amount of tokenOut acceptable (as string)
+  directPayout: boolean;// True if output goes direct to user, false if to internal balance
+  nonce: string;        // User's nonce for this swap (as string) 
+  deadline: string;     // Unix timestamp deadline (as string)
 }

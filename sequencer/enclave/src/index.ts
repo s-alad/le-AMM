@@ -1,9 +1,5 @@
-// Sequencer vsock server
-// ---------------------
-// handles TEE actions
-//
-
 import crypto, { randomBytes } from 'crypto';
+import { encodeFunctionData, isAddress, type Address } from 'viem';
 import { getPublicKey } from "@noble/secp256k1";
 import { pubToAddress, EncryptedEnvelope } from "@cryptography/core/constants";
 import { VsockServer, VsockSocket } from 'node-vsock';
@@ -13,141 +9,284 @@ import { SwapRequest } from "@cryptography/core/constants";
 
 console.log("[SEQ] ONLINE");
 
-// generate a new random private key and corresponding public key
+// _ STATE ───────────────────────────────────────────────────────────────────────────────────────╮
+// #region
+
 const seqprivatekey = randomBytes(32);
 const seqprivatekeyhex = seqprivatekey.toString('hex');
-const seqpubhex = "0x" + Buffer.from(
-  getPublicKey(seqprivatekey, false)
-).toString("hex");
+const seqpubhex = "0x" + Buffer.from(getPublicKey(seqprivatekey, false)).toString("hex");
 const seqpubkeybuf = Buffer.from(seqpubhex.substring(2), 'hex');
+const contract = "";
+const teeammabi = [
+	{
+		"type": "function",
+		"name": "batchSwap",
+		"inputs": [
+			{
+				"name": "xs",
+				"type": "tuple[]",
+				"components": [
+					{ "name": "user", "type": "address" },
+					{ "name": "tokenIn", "type": "address" },
+					{ "name": "tokenOut", "type": "address" },
+					{ "name": "amountIn", "type": "uint128" },
+					{ "name": "minOut", "type": "uint128" },
+					{ "name": "directPayout", "type": "bool" },
+					{ "name": "nonce", "type": "uint64" },
+					{ "name": "deadline", "type": "uint64" }
+				],
+				"internalType": "struct TEEAMM.SwapIntent[]"
+			}
+		],
+		"outputs": [],
+		"stateMutability": "nonpayable"
+	}
+] as const;
 
-// generate an attestation document
+let vsockconnection: VsockSocket | null = null;
+let batch: SwapRequest[] = [];
+// #endregion
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+function checkswap(req: any): req is SwapRequest {
+	if (typeof req !== 'object' || req === null) return false;
+
+	if (!isAddress(req.user) || !isAddress(req.tokenIn) || !isAddress(req.tokenOut)) return false;
+	if (typeof req.directPayout !== 'boolean') return false;
+
+	try {
+		const amountIn = BigInt(req.amountIn);
+		const minOut = BigInt(req.minOut);
+		const nonce = BigInt(req.nonce);
+		const deadline = BigInt(req.deadline);
+
+		if (amountIn < 0n || minOut < 0n || nonce < 0n || deadline < 0n) return false;
+		if (amountIn === 0n || minOut === 0n) return false;
+	} catch (e) {
+		return false;
+	}
+
+	return true;
+}
+
+async function swapping(strenvelope: string): Promise<boolean> {
+	console.log("[SEQ] processing swap request");
+	try {
+		const envelope: EncryptedEnvelope = JSON.parse(strenvelope);
+		const sr = await decryptEciesEnvelope(envelope, seqprivatekeyhex);
+		console.log("[SEQ] Successfully decrypted swap request for user:", sr.user);
+		if (!checkswap(sr)) {
+			console.error("[SEQ] invalid swap request received");
+			return false;
+		}
+		batch.push(sr);
+		console.log("[SEQ] successfully added swap request to batch");
+		return true;
+	} catch (error: any) {
+		console.error("[SEQ] failed to process swap request:", error);
+		return false;
+	}
+}
+
+async function sendbatch() {
+	if (batch.length === 0) {
+		console.log("[SEQ] no swaps to send");
+		return;
+	}
+
+	console.log(`[SEQ] Creating batch transaction for ${batch.length} swaps.`);
+	const xbatch = [...batch];
+	batch = [];
+
+	try {
+		const formatted = xbatch.map((req): {
+			user: Address; tokenIn: Address; tokenOut: Address; amountIn: bigint;
+			minOut: bigint; directPayout: boolean; nonce: bigint; deadline: bigint
+		} => {
+			try {
+				return {
+					user: req.user as Address,
+					tokenIn: req.tokenIn as Address,
+					tokenOut: req.tokenOut as Address,
+					amountIn: BigInt(req.amountIn),
+					minOut: BigInt(req.minOut),
+					directPayout: req.directPayout,
+					nonce: BigInt(req.nonce),
+					deadline: BigInt(req.deadline)
+				};
+			} catch (e) {
+				throw new Error(`Error converting swap fields for batch: ${JSON.stringify(req)} - ${e}`);
+			}
+		});
+
+		// encode function data using viem
+		const tx = encodeFunctionData({
+			abi: teeammabi,
+			functionName: 'batchSwap',
+			args: [formatted],
+		});
+
+		console.log(`[SEQ] encoded batchSwap transaction data: ${tx.substring(0, 74)}... (length: ${tx.length})`);
+
+		// Send data back to host via the established connection
+		if (vsockconnection && !vsockconnection.destroyed) {
+			console.log("[SEQ] sending transaction data to host...");
+			vsockconnection.writeTextSync(`SEQ_BATCH_TX:${tx}`);
+			// TODO: Implement ACK mechanism from host?
+		} else {
+			console.error("[SEQ] No active VSock connection to host to send batch transaction data. Re-queuing batch.");
+			batch.unshift(...xbatch);
+		}
+
+	} catch (error) {
+		console.error("[SEQ] Error creating, encoding, or sending batch transaction:", error);
+		console.log("[SEQ] Re-queuing failed batch due to error.");
+		batch.unshift(...xbatch);
+	}
+}
+
+// _ ATTESATION ──────────────────────────────────────────────────────────────────────────────────╮
+// #region
+
 function attest(nonce: Buffer): Buffer {
-  console.log("[SEQ] generating attestation document with nonce");
-  let fd = -1;
-  try {
-    fd = open();
-    console.log(`[SEQ] NSM device opened (fd: ${fd})`);
-    let attestDoc = getAttestationDoc(
-      fd,
-      null,
-      nonce,
-      seqpubkeybuf
-    );
-    console.log(`[SEQ] Attestation document generated, closing fd: ${fd}`);
-    close(fd);
-    fd = -1;
-    return attestDoc;
-  } catch (e) {
-    console.error("[SEQ] error generating attestation document:", e);
-    if (fd !== -1) {
-      console.log(`[SEQ] Closing NSM device (fd: ${fd}) due to error`);
-      close(fd);
-    }
-    throw e;
-  }
+	console.log("[SEQ] generating attestation document with nonce");
+	let fd = -1;
+	try {
+		fd = open();
+		console.log(`[SEQ] NSM device opened (fd: ${fd})`);
+		let attestDoc = getAttestationDoc(
+			fd,
+			null,
+			nonce,
+			seqpubkeybuf
+		);
+		console.log(`[SEQ] Attestation document generated, closing fd: ${fd}`);
+		close(fd);
+		fd = -1;
+		return attestDoc;
+	} catch (e) {
+		console.error("[SEQ] error generating attestation document:", e);
+		if (fd !== -1) {
+			console.log(`[SEQ] Closing NSM device (fd: ${fd}) due to error`);
+			close(fd);
+		}
+		throw e;
+	}
 }
 
+// #endregion
+// ────────────────────────────────────────────────────────────────────────────────────────────────
 
-// Process a swap request by decrypting it
-async function swapping(strenvelope: string): Promise<SwapRequest | string> {
-  console.log("[SEQ] processing swap request");
-  try {
-    const envelope: EncryptedEnvelope = JSON.parse(strenvelope);
-    const sr = await decryptEciesEnvelope(envelope, seqprivatekeyhex);
-    console.log("[SEQ] successfully decrypted swap request:", sr);
-    return sr;
-  } catch (error: any) {
-    console.error("[SEQ] failed to process swap request:", error);
-    return `ERROR:${error.message || 'Unknown error processing swap'}`;
-  }
-}
+// _ SERVER ──────────────────────────────────────────────────────────────────────────────────────╮
+// #region
 
-// create vsock server
 const server = new VsockServer();
 const port = 9001;
 
-server.on('error', (err: Error) => {
-  console.error("[SEQ] server error:", err);
-});
+server.on('error', (err: Error) => console.error("[SEQ] server error:", err));
 
 server.on('connection', (socket: VsockSocket) => {
-  console.log("[SEQ] new connection from host");
+	console.log("[SEQ] new connection from host");
 
-  socket.on('error', (err) => {
-    console.error("[SEQ] socket error:", err);
-  });
+	socket.once('data', async (buf: Buffer) => {
+		const request = buf.toString();
+		console.log("[SEQ] received request:", request);
 
-  socket.on('data', (buf: Buffer) => {
-    const request = buf.toString();
-    console.log("[SEQ] received request:", request);
+		if (request === 'SEQ_REGISTER_PERSISTENT') {
+			console.log("[SEQ] persistent connection requested");
+			// clean up old persistent connection if it exists
+			if (vsockconnection && !vsockconnection.destroyed) {
+				console.warn(`[SEQ] closing previous persistent connection.`);
+				vsockconnection.removeAllListeners(); // Prevent memory leaks
+				vsockconnection.end();
+			}
 
-    if (request === 'SEQ_PUBLICKEY') {
-      console.log("[SEQ] (publickey) sending public key:", seqpubhex);
-      socket.writeTextSync(seqpubhex);
-      socket.end();
-    }
+			// store the new persistent connection
+			vsockconnection = socket;
 
-    if (request === 'SEQ_HEARTBEAT') {
-      console.log("[SEQ] (heartbeat) sending heartbeat");
-      socket.writeTextSync('1');
-      socket.end();
-    }
+			// add close/error handlers specifically for this persistent socket
+			socket.on('close', () => {
+				console.warn(`[SEQ] persistent host connection closed.`);
+				if (vsockconnection === socket) vsockconnection = null;
+			});
+			socket.on('error', (err) => {
+				console.error(`[SEQ] persistent host connection error:`, err);
+				if (vsockconnection === socket) vsockconnection = null;
+			});
 
-    if (request.startsWith('SEQ_SWAP:')) {
-      console.log("[SEQ] received swap request");
-      const [, strenvelope] = request.split('SEQ_SWAP:', 2);
+			// acknowledge registration
+			try { console.log("[SEQ] sending ACK_PERSIST"); socket.writeTextSync("ACK_PERSIST"); } 
+			catch (e) { console.error("[SEQ] Failed to send ACK_PERSIST", e); vsockconnection = null; socket.end(); }
 
-      swapping(strenvelope).then(result => {
-        if (typeof result === 'string') {
-          socket.writeTextSync(result);
-        } else {
-          socket.writeTextSync(JSON.stringify(result));
-        }
-      }).catch(error => {
-        console.error("[SEQ] error processing swap:", error);
-        socket.writeTextSync(`ERROR:${error.message || 'Unknown error'}`);
-      }).finally(() => {
-        socket.end();
-      });
-    }
+			// --- KEEP ALIVE ---
+		} else {
+			console.log(`[SEQ] transient connection received`);
+			let response: string | null = null;
+			try {
+				if (request === 'SEQ_PUBLICKEY') {
+					console.log("[SEQ] sending public key");
+					response = seqpubhex;
+				} 
+				if (request === 'SEQ_HEARTBEAT') {
+					console.log("[SEQ] sending heartbeat");
+					response = '1';
+				} 
+				if (request.startsWith('SEQ_SWAP:')) {
+					console.log("[SEQ] processing swap request");
+					const [, strenvelope] = request.split('SEQ_SWAP:', 2);
+					const success = await swapping(strenvelope);
+					response = success ? "ACK_SWAP_RECEIVED" : "NACK_SWAP_FAILED";
+				}
+				if (request.startsWith('SEQ_ATTESTATION:')) {
+					console.log("[SEQ] processing attestation request");
+					const [, noncehex] = request.split(':', 2);
+					if (!noncehex || noncehex.length === 0) {
+						response = 'ERROR:EMPTY_NONCE';
+					} else {
+						const nb = Buffer.from(noncehex, 'hex');
+						if (nb.length < 16 || nb.length > 64) throw new Error('Nonce length invalid (must be 16-64 bytes)');
+						const doc = attest(nb);
+						response = doc.toString('base64');
+					}
+				}
+			} catch (error: any) {
+				console.error(`[SEQ] error processing transient request:`, error);
+				response = `ERROR:${error}`;
+			} finally {
+				if (!socket.destroyed) {
+					if (response) {
+						console.log("[SEQ] sending response:", response);
+						try { socket.writeTextSync(response); } catch (e) { console.error("[SEQ] error sending response:", e); }
+					}
+					socket.end();
+				}
+			}
 
-    if (request.startsWith('SEQ_ATTESTATION:')) {
-      const [, noncehex] = request.split(':', 2);
-      console.log(`[SEQ] received attestation request with nonce: ${noncehex}`);
-
-      if (!noncehex || noncehex.length === 0) {
-        console.error("[SEQ] empty nonce received");
-        socket.writeTextSync('ERROR:Empty nonce received');
-        socket.end();
-        return;
-      }
-
-      try {
-        const nb = Buffer.from(noncehex, 'hex');
-        if (nb.length > 64) throw new Error('Nonce exceeds max length');
-        console.log("[SEQ] parsed nonce buffer length:", nb.length);
-        const doc = attest(nb);
-        console.log(`[SEQ] sending attestation document (base64) to host`);
-        socket.writeTextSync(doc.toString('base64'));
-      } catch (error) {
-        console.error("[SEQ] error:", error);
-        socket.writeTextSync(`ERROR:${error instanceof Error ? error.message : 'Attestation failed'}`);
-      } finally {
-        socket.end();
-      }
-    }
-  });
+		}
+	});
 });
 
-// start the server
 server.listen(port);
 console.log(`[SEQ] ACTIVE V2 @ ${port}`);
 console.log(`[SEQ] PUBLIC KEY: ${seqpubhex}`);
 console.log(`[SEQ] ADDRESS: ${pubToAddress(seqpubhex)}`);
+// #endregion
+// ───────────────────────────────────────────────────────────────────────────────────────────────
 
-// heartbeat every 10 seconds
-setInterval(() => {
-  const timestamp = new Date().toISOString();
-  console.log(`[SEQ] HEARTBEAT ${timestamp}`);
+// _ TIMERS ───────────────────────────────────────────────────────────────────────────────────────╮
+// #region
+
+setInterval(async () => { // batching
+	if (batch.length > 0) {
+		console.log("[SEQ] processing batch of size:", batch.length);
+		await sendbatch();
+	}
 }, 10000);
+
+setInterval(async () => { // heartbeat
+	const timestamp = new Date().toISOString();
+	console.log(`[SEQ] HEARTBEAT ${timestamp}`);
+}, 10000);
+
+// #endregion
+// ────────────────────────────────────────────────────────────────────────────────────────────────

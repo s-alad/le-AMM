@@ -39,14 +39,14 @@ export async function decryptEciesEnvelope(
 
   const obj = JSON.parse(pt) as SwapRequest;
   if (
-    typeof obj.address !== 'string' ||
+    typeof obj.user !== 'string' ||
     typeof obj.tokenIn !== 'string' ||
     typeof obj.tokenOut !== 'string' ||
     typeof obj.amountIn !== 'string' ||
-    typeof obj.amountOut !== 'string' ||
+    typeof obj.minOut !== 'string' ||
     typeof obj.directPayout !== 'boolean' ||
     typeof obj.nonce !== 'string' ||
-    typeof obj.fee !== 'string'
+    typeof obj.deadline !== 'string'
   ) {
     throw new Error('invalid swap request schema');
   }

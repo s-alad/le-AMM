@@ -20,14 +20,14 @@ export async function message(): Promise<boolean> {
   console.log(`public key: ${sequencerPubHex}`);
 
   const sample: SwapRequest = {
-    address: "0x0000000000000000000000000000000000000000",
+    user: "0x0000000000000000000000000000000000000000",
     tokenIn: "0x0000000000000000000000000000000000000000",
     tokenOut: "0x0000000000000000000000000000000000000000",
     amountIn: "0",
-    amountOut: "0",
+    minOut: "0",
     directPayout: false,
     nonce: "0",
-    fee: "0"
+    deadline: "0"
   };
 
   console.log('sample:', sample);
@@ -41,14 +41,14 @@ export async function message(): Promise<boolean> {
   console.log('decrypted:', decrypted);
 
   const eq = 
-    decrypted.address === sample.address &&
+    decrypted.user === sample.user &&
     decrypted.tokenIn === sample.tokenIn &&
     decrypted.tokenOut === sample.tokenOut &&
     decrypted.amountIn === sample.amountIn &&
-    decrypted.amountOut === sample.amountOut &&
+    decrypted.minOut === sample.minOut &&
     decrypted.directPayout === sample.directPayout &&
     decrypted.nonce === sample.nonce &&
-    decrypted.fee === sample.fee;
+    decrypted.deadline === sample.deadline;
 
   console.log('decryption successful:', eq);
   return eq;

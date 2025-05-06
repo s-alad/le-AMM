@@ -9,7 +9,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import "dotenv/config";
 import { decryptEciesEnvelope } from "@cryptography/core/decryption";
 import { getPublicKey } from "@noble/secp256k1";
-import { SwapRequest, EncryptedEnvelope, pubToAddress} from "@cryptography/core/constants";
+import { SwapRequest, EncryptedEnvelope, pubToAddress } from "@cryptography/core/constants";
 import { VsockSocket } from 'node-vsock';
 import { encryptEciesEnvelope } from "@cryptography/core/encryption";
 
@@ -20,6 +20,9 @@ import { encryptEciesEnvelope } from "@cryptography/core/encryption";
 // vsock connection config
 const seqcid = 16;
 const seqport = 9001;
+
+let persistentsocket: VsockSocket | null = null;
+let persisting = false;
 
 // sequencer public key
 let seqpubkey: string = '';
@@ -32,7 +35,7 @@ function handler(fn: (req: Request, res: Response, next: NextFunction) => Promis
 
 // generic vsock communication function
 async function talk<T>(message: string, timeout = 5000): Promise<T> {
-    console.log(`[HOST] sending message to sequencer: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`);
+    console.log(`[HOST] sending transient message to sequencer: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`);
     return new Promise((resolve, reject) => {
         let client: VsockSocket | null = new VsockSocket();
         let ctime: NodeJS.Timeout | null = null;
@@ -83,7 +86,7 @@ async function talk<T>(message: string, timeout = 5000): Promise<T> {
                 cleanup();
             }, timeout);
 
-            client!.on('data', (buf: Buffer) => {
+            client!.once('data', (buf: Buffer) => {
                 if (rtime) clearTimeout(rtime);
                 rtime = null;
                 const response = buf.toString();
@@ -140,21 +143,97 @@ async function testify(noncehex: string): Promise<Buffer | null> {
 }
 
 // forward swap request to sequencer for decryption and processing
-async function fwdswap(envelope: EncryptedEnvelope): Promise<SwapRequest | null> {
-    console.log("[HOST] forwarding encrypted swap request to sequencer");
+async function fwdswap(envelope: EncryptedEnvelope): Promise<boolean> {
+    console.log("[HOST] Forwarding encrypted swap request to sequencer");
     try {
         const strenvelope = JSON.stringify(envelope);
         const message = `SEQ_SWAP:${strenvelope}`;
-        const response = await talk<string>(message);
-        if (response.startsWith('ERROR:')) {
-            console.error("[HOST] sequencer failed to process swap:", response.substring(6));
-            return null;
+        const response = await talk<string>(message, 6000);
+
+        if (response === "ACK_SWAP_RECEIVED") {
+            console.log("[HOST] swap request acknowledged by sequencer.");
+            return true;
+        } else {
+            console.error("[HOST] swap request failed or rejected by sequencer:", response);
+            return false;
         }
-        return JSON.parse(response) as SwapRequest;
     } catch (error) {
-        console.error("[HOST] swap request failed:", error);
-        return null;
+        console.error("[HOST] swap request communication failed:", error);
+        return false;
     }
+}
+
+function persist() {
+    if (persistentsocket || persisting) {
+        console.log("[HOST] persistent connection already active or attempting connection.");
+        return;
+    }
+
+    persisting = true;
+    console.log(`[HOST] attempting to establish persistent connection to cid=${seqcid} port=${seqport}...`);
+    const socket = new VsockSocket();
+
+    const listeners = () => {
+        socket.on('data', (buf: Buffer) => {
+            const message = buf.toString();
+            const logMessage = message.length > 100 ? `${message.substring(0, 100)}...` : message;
+            console.log(`[HOST] Received data on persistent channel: ${logMessage}`);
+
+            if (message.startsWith('SEQ_BATCH_TX:')) {
+                const tx = message.substring('SEQ_BATCH_TX:'.length);
+                console.log("[HOST] received batch tx:", tx);
+            }
+            if (message === 'ACK_PERSIST') {
+                console.log("[HOST] ACK_PERSIST from enclave for batch sink.");
+            }
+        });
+
+        socket.on('close', () => {
+            console.warn("[HOST] persistent connection closed. re-connecting...");
+            persistentsocket = null;
+            persisting = false;
+            // schedule reconnect after delay
+            setTimeout(persist, 1000);
+        });
+
+        socket.on('error', (err: Error) => {
+            console.error("[HOST] persistent connection error:", err);
+            persistentsocket = null;
+            persisting = false;
+            if (!socket.destroyed) socket.end();
+            // schedule reconnect after delay
+            setTimeout(persist, 1000);
+        });
+    }
+
+    socket.connect(seqcid, seqport, () => {
+        console.log("[HOST] persistent connection established. registering...");
+        persisting = false;
+        persistentsocket = socket;
+
+        try {
+            socket.writeTextSync('SEQ_REGISTER_PERSISTENT');
+            listeners();
+        } catch (e) {
+            console.error("[HOST] failed to send registration message:", e);
+            persistentsocket = null;
+            persisting = false;
+            if (!socket.destroyed) socket.end();
+            // schedule reconnect after delay
+            setTimeout(persist, 1000);
+        }
+    });
+
+    // handle initial connection error
+    socket.once('error', (err: Error) => {
+        if (!persistentsocket) {
+            console.error("[HOST] initial connection error:", err);
+            persisting = false;
+            // schedule reconnect after delay
+            setTimeout(persist, 1000);
+        }
+    });
+
 }
 
 // ---------------------------------------------------------------------------
@@ -174,13 +253,12 @@ app.get("/health", handler(async (_req, res) => {
 }));
 
 app.get("/info", (_req, res) => {
-    res.json({
+res.json({
         address: pubToAddress(seqpubkey),
         publicKey: seqpubkey,
     });
 });
 
-// forward /publickey requests to the sequencer via vsock
 app.get("/publickey", handler(async (_req, res) => {
     try {
         const pubkey = await spk();
@@ -191,9 +269,7 @@ app.get("/publickey", handler(async (_req, res) => {
     }
 }));
 
-app.get(
-    "/attest",
-    handler(async (req, res) => {
+app.get("/attest", handler(async (req, res) => {
         const nonce = req.query.nonce;
 
         if (!nonce || typeof nonce !== 'string' || nonce.length === 0) {
@@ -222,9 +298,7 @@ app.get(
     })
 );
 
-app.post(
-    "/swap",
-    handler(async (req, res) => {
+app.post("/swap", handler(async (req, res) => {
         const envelope: EncryptedEnvelope = req.body;
         if (!envelope || typeof envelope !== 'object' || !envelope.ephPub || !envelope.iv || !envelope.tag || !envelope.data) {
             console.warn("[HOST] /swap bad request: Invalid envelope structure");
@@ -244,67 +318,41 @@ app.post(
     })
 );
 
-app.get(
-    "/test-swap",
-    handler(async (_req, res) => {
-        try {
-            console.log("[HOST] testing swap flow");
+app.get("/test-swap", handler(async (_req, res) => {
+    try {
+        console.log("[HOST] /test-swap request received");
+        const ts: SwapRequest = {
+            user: "0x1111111111111111111111111111111111111111",
+            tokenIn: "0x2222222222222222222222222222222222222222",
+            tokenOut: "0x3333333333333333333333333333333333333333",
+            amountIn: "1000000000000000000",
+            minOut: "990000000000000000",
+            directPayout: false,
+            nonce: Math.floor(Math.random() * 10000).toString(),
+            deadline: (Math.floor(Date.now() / 1000) + 300).toString()
+        };
+        console.log("[HOST] created test swap request:", ts);
 
-            // Create a fake swap request
-            const testSwap: SwapRequest = {
-                address: "0xTestAddress123456789",
-                tokenIn: "ETH",
-                tokenOut: "USDC",
-                amountIn: '1',
-                amountOut: '1',
-                directPayout: true,
-                nonce: '1',
-                fee: '0'
-            };
+        if (!seqpubkey) { return res.status(503).json({ error: "Sequencer pubkey unavailable" }); }
 
-            console.log("[HOST] created test swap request:", testSwap);
+        console.log("[HOST] encrypting test swap...");
+        const envelope = await encryptEciesEnvelope(ts, seqpubkey);
 
-            // Step 1: Encrypt the swap with the sequencer's public key
-            if (!seqpubkey) {
-                return res.status(500).json({ error: "Sequencer public key not available" });
-            }
+        console.log("[HOST] forwarding encrypted test swap...");
+        const ackReceived = await fwdswap(envelope);
 
-            console.log("[HOST] encrypting test swap with sequencer public key:", seqpubkey);
-            const envelope = await encryptEciesEnvelope(testSwap, seqpubkey);
-
-            // Step 2: Forward the encrypted envelope to the sequencer
-            console.log("[HOST] forwarding encrypted test swap to sequencer");
-            const decryptedSwap = await fwdswap(envelope);
-
-            if (!decryptedSwap) {
-                return res.status(500).json({ error: "Sequencer failed to decrypt test swap" });
-            }
-
-            // Step 3: Compare original and decrypted swap to verify integrity
-            const swapMatches =
-                decryptedSwap.address === testSwap.address &&
-                decryptedSwap.tokenIn === testSwap.tokenIn &&
-                decryptedSwap.tokenOut === testSwap.tokenOut &&
-                decryptedSwap.amountIn === testSwap.amountIn &&
-                decryptedSwap.amountOut === testSwap.amountOut &&
-                decryptedSwap.directPayout === testSwap.directPayout &&
-                decryptedSwap.nonce === testSwap.nonce &&
-                decryptedSwap.fee === testSwap.fee;
-
-            // Return test results
-            return res.json({
-                success: swapMatches,
-                original: testSwap,
-                decrypted: decryptedSwap,
-                message: swapMatches ?
-                    "Swap test successful! The sequencer correctly decrypted the swap." :
-                    "Swap test failed. The decrypted swap doesn't match the original."
-            });
-        } catch (error: any) {
-            console.error("[HOST] test-swap error:", error);
-            return res.status(500).json({ error: "Test swap failed", details: error.message });
-        }
-    })
+        return res.status(ackReceived ? 200 : 500).json({
+            success: ackReceived,
+            message: ackReceived
+                ? "Test swap successfully sent and acknowledged by sequencer."
+                : "Test swap failed: Sequencer did not acknowledge receipt.",
+            encryptedEnvelope: envelope
+        });
+    } catch (error: any) {
+        console.error("[HOST] /test-swap critical error:", error);
+        return res.status(500).json({ error: "Test swap failed", details: error.message });
+    }
+})
 );
 
 // error handler
@@ -319,6 +367,8 @@ const port = Number(process.env.PORT) || 8080;
 async function initialize() {
     try {
         seqpubkey = await spk();
+
+        persist();
 
         // start the express server after we have the public key
         app.listen(port, '0.0.0.0', () => {
