@@ -66,8 +66,8 @@ if ! command -v tmux &> /dev/null; then
 fi
 
 # Start a new tmux session with vertical splits for logs
-tmux new-session -d -s enclave_host_logs "tail -f '$ENCLAVE_LOG'"
-tmux split-window -h "tail -f '$HOST_LOG'"
+tmux new-session -d -s enclave_host_logs "less -r +F '$ENCLAVE_LOG'"
+tmux split-window -h "less -r +F '$HOST_LOG'"
 tmux select-layout even-horizontal
 tmux attach -t enclave_host_logs
 
