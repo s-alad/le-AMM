@@ -53,6 +53,7 @@ echo "--- enclave is online ---"
 # start host using run.sh script and log output
 echo "--- starting host with run.sh ---"
 cd ~/TEE
+chmod +x sequencer/host/run.sh
 sequencer/host/run.sh "$HOST_LOG" > /dev/null &
 cd ~
 
