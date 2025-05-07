@@ -6,3 +6,4 @@ priv.hex
 pub.hex
 address.txt
 ec2.sh
+tee.sh
