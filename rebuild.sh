@@ -66,4 +66,4 @@ cd ~
 sleep 2
 
 # tail both logs using multitail
-multitail -s 2 -sn 1 -t "ENCLAVE LOG" "$ENCLAVE_LOG" -sn 2 -t "HOST LOG" "$HOST_LOG"
+multitail -L 10000 -w -s 2 -sn 1 -t "ENCLAVE LOG" enclave.log -sn 2 -t "HOST LOG" host.log
