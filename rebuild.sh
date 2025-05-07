@@ -65,6 +65,10 @@ if ! command -v multitail &> /dev/null; then
   sudo apt-get update && sudo apt-get install -y multitail
 fi
 
-echo "--- displaying logs for $ENCLAVE_LOG and $HOST_LOG ---"
-echo "--- press 'b' to scroll, '/' to search. Press 'q' in the log window to close multitail and exit the script. ---"
+echo "--- sane terminal ---"
+stty -a
+stty sane
+stty -a 
+
+echo "--- displaying logs. Press 'q' in log window to exit. ---"
 multitail -s 2 "$ENCLAVE_LOG" "$HOST_LOG"
