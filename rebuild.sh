@@ -12,10 +12,10 @@ cd ~
 : > "$ENCLAVE_LOG"
 : > "$HOST_LOG"
 
-# lnav  
-if ! command -v lnav &> /dev/null; then
-  echo "lnav not found — installing via apt..."
-  sudo apt-get update && sudo apt-get install -y lnav
+# multitail
+if ! command -v multitail &> /dev/null; then
+  echo "multitail not found — installing via apt..."
+  sudo apt-get update && sudo apt-get install -y multitail
 fi
 
 cd ~/TEE
@@ -65,5 +65,6 @@ cd ~
 # wait briefly to ensure processes are started
 sleep 2
 
-# tail both logs using lnav
-lnav "$ENCLAVE_LOG" "$HOST_LOG"
+# tail both logs using multitail
+multitail -v -ci white -i "$ENCLAVE_LOG" -t "ENCLAVE" -ci white -i "$HOST_LOG" -t "HOST" -w
+
