@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 async function main() {
-    console.log(`network: ${hre.network.name}`);
+    console.log(`NETWORK ${hre.network.name}`);
 
     const TEEAMM_CONTRACT_ADDRESS = "0x8Ca56de06b2e22262B248932b713601Ad6c62D36"
     const NEW_SEQUENCER_ADDRESS = "0x87574F8754e6121888E31bc26E251b88273C4b24"
@@ -14,7 +14,7 @@ async function main() {
         process.exit(1);
     } else {
         console.log(`TEEAMM Contract: ${TEEAMM_CONTRACT_ADDRESS}`);
-        console.log(`New sequencer address: ${NEW_SEQUENCER_ADDRESS}`);
+        console.log(`new sequencer address: ${NEW_SEQUENCER_ADDRESS}`);
     }
 
     try {
@@ -22,9 +22,8 @@ async function main() {
 
         // wallet client (should be the guardian)
         const [wc] = await hre.viem.getWalletClients();
-
         if (!wc.account) {
-            throw new Error("No wallet account available");
+            throw new Error("no wallet account available");
         }
 
         const cseq = await teeamm.read.getSequencer() as Address;
@@ -36,7 +35,7 @@ async function main() {
         console.log(`txn sent: ${tx}`);
 
         const pc = await hre.viem.getPublicClient();
-        console.log("waiting for transaction confirmation...");
+        console.log("waiting for txn confirmation");
         const receipt = await pc.waitForTransactionReceipt({
             hash: tx,
         });
