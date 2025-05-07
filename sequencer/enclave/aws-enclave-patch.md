@@ -1,4 +1,4 @@
-# aws‑nitro‑enclaves‑nsm‑node – ARM Support Port
+# aws‑nitro‑enclaves‑nsm‑node – ARM Support Patch
 
 Added [lacking](https://github.com/wei-rong-1/aws-nitro-enclaves-nsm-node?tab=readme-ov-file#support-os) native binaries for Linux arm64 and macOS arm64 (Apple Silicon) to the original `aws‑nitro‑enclaves‑nsm‑node` package.
 
