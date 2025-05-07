@@ -1,12 +1,25 @@
 #!/bin/bash
 
-# verbose
 set -x
 
-# pull and build
+cd ~
+
+# multitail
+if ! command -v multitail &> /dev/null; then
+  echo "multitail not found — installing via apt..."
+  sudo apt-get update && sudo apt-get install -y multitail
+fi
+
 cd ~/TEE
+
 git pull
-docker build -f sequencer/enclave/Dockerfile -t sequencer:latest .
+
+echo "--- building sequencer-enclave ---"
+docker build -f sequencer/enclave/Dockerfile -t sequencer-enclave:latest .
+
+echo "--- building sequencer-host ---"
+docker build -f sequencer/host/Dockerfile -t sequencer-host:latest .
+
 cd ~
 
 # describe enclaves
@@ -23,9 +36,20 @@ if [[ "$ENCLAVE_INFO" != "[]" ]]; then
   fi
 fi
 
-# build and run the new enclave
+# build the new enclave
 echo "--- building enclave ---"
-nitro-cli build-enclave --docker-uri sequencer:latest --output-file sequencer.eif
-echo "--- enclave starting ---"
-# nitro-cli run-enclave --cpu-count 2 --memory 2000 --enclave-cid 16 --eif-path sequencer.eif --debug-mode --attach-console
-nitro-cli run-enclave --cpu-count 2 --memory 2000 --enclave-cid 16 --eif-path sequencer.eif --attach-console
+nitro-cli build-enclave --docker-uri sequencer-enclave:latest --output-file sequencer.eif
+
+# start enclave in background and log output
+echo "--- starting enclave ---"
+nitro-cli run-enclave --cpu-count 2 --memory 2000 --enclave-cid 16 --eif-path sequencer.eif --attach-console > enclave.log 2>&1 &
+
+# start host container and log output
+echo "--- starting host container ---"
+docker run --rm sequencer-host:latest > host.log 2>&1 &
+
+# wait briefly to ensure processes are started
+sleep 2
+
+# tail both logs using multitail
+multitail -s 2 -sn 1 -t "ENCLAVE LOG" enclave.log -sn 2 -t "HOST LOG" host.log
