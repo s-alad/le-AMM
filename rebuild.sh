@@ -54,7 +54,7 @@ echo "--- enclave is online ---"
 echo "--- starting host with run.sh ---"
 cd ~/TEE
 chmod +x sequencer/host/run.sh
-sequencer/host/run.sh "$HOST_LOG" > /dev/null &
+nohup bash sequencer/host/run.sh "$HOST_LOG" > /dev/null 2>&1 &
 cd ~
 
 # wait briefly to ensure processes are started

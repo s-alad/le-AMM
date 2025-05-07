@@ -55,6 +55,12 @@
 - move build/rebuild script to ~
     - `mv ~/TEE/rebuild.sh ~`
     - `chmod +x rebuild.sh`
+- run the app
+    - `./rebuild.sh`
+- copy the enclaves empheral public key
+    - `[SEQ] PUBLIC KEY: 0x0...`
+- update the deployed contracts sequencer address (guardian.script.ts)
+    - `~/TEE/contracts $ npx hardhat run scripts/GUARDIAN.script.ts --network sepolia`
 
 ### ATTESTATION
 - generate nonce for attestation:
