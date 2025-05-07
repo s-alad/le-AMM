@@ -38,6 +38,8 @@
     - `openssl rand -hex 32 > priv.hex`    
 - derive the uncompressed public key & address
     - `npx tsx cryptography/src/derive.ts priv.hex`
+- deploy the TEEAMM contract
+    - 
 - clone repo
     - `git clone https://github.com/s-alad/le-AMM.git`
 - rename repo
@@ -45,9 +47,7 @@
 - move build/rebuild script to ~
     - `mv ~/TEE/rebuild.sh ~`
     - `chmod +x rebuild.sh`
-- useful:
-    - `sudo lsof -i :8080`
-    - `sudo kill <pid>`
+
 
 ### RUN
 0. contract/.env
