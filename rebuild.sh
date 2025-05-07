@@ -44,6 +44,13 @@ nitro-cli build-enclave --docker-uri sequencer-enclave:latest --output-file sequ
 echo "--- starting enclave ---"
 nitro-cli run-enclave --cpu-count 2 --memory 2000 --enclave-cid 16 --eif-path sequencer.eif --attach-console > enclave.log 2>&1 &
 
+# Wait until enclave is ready
+echo "--- waiting for enclave to come online ---"
+while ! grep -q "\[SEQ\] ONLINE" enclave.log; do
+  sleep 1
+done
+echo "--- enclave is online ---"
+
 # start host container and log output
 echo "--- starting host container ---"
 docker run --rm sequencer-host:latest > host.log 2>&1 &
