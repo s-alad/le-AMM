@@ -2,7 +2,7 @@
 // ----------
 // Usage:
 //   1)  npm add @noble/secp256k1 @noble/hashes
-//   2)  npx ts-node derive.ts priv.hex            # writes pub.hex & address.txt
+//   2)  npx ts-node derive.ts priv.hex
 //   3)  npx ts-node derive.ts priv.hex pub.out addr.out
 //
 // Reads a 64‑hex‑char secp256k1 private key from <privKeyFile>,
@@ -10,8 +10,7 @@
 // Optional 2nd & 3rd CLI args let you override output filenames.
 
 import { promises as fs } from 'node:fs';
-import { getPublicKey }   from '@noble/secp256k1';
-import { keccak_256 }     from '@noble/hashes/sha3';
+import { getPublicKey } from '@noble/secp256k1';
 import { pubToAddress } from './constants.js';
 
 async function loadPrivKey(file: string): Promise<string> {
@@ -30,22 +29,21 @@ export function privToPub(privHex: string): string {
 (async () => {
   const [privFile, pubFile = 'pub.hex', addrFile = 'address.txt'] = process.argv.slice(2);
   if (!privFile) {
-    console.error('Usage: ts-node derive.ts <privKeyFile> [pubOutFile] [addrOutFile]');
+    console.error('npx tsx derive.ts <privKeyFile> [pubOutFile] [addrOutFile]');
     process.exit(1);
   }
 
   try {
     const privHex = await loadPrivKey(privFile);
-    const pubHex  = privToPub(privHex);
+    const pubHex = privToPub(privHex);
     const address = pubToAddress(pubHex);
 
     console.log('Private : 0x' + privHex);
     console.log('Public  : ' + pubHex);
     console.log('Address : ' + address);
 
-    // Strip 0x for file convenience
-    await fs.writeFile(pubFile,  pubHex.replace(/^0x/, '') + '\n',  { mode: 0o600 });
-    await fs.writeFile(addrFile, address + '\n',                   { mode: 0o644 });
+    await fs.writeFile(pubFile, pubHex, { mode: 0o600 });
+    await fs.writeFile(addrFile, address + '\n', { mode: 0o644 });
 
     console.log(`→ wrote public key to ${pubFile}`);
     console.log(`→ wrote address    to ${addrFile}`);

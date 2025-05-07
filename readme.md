@@ -34,6 +34,10 @@
     ```
 
 ### SETUP
+- make a 32-byte secp256k1 private key for the **guardian**
+    - `openssl rand -hex 32 > priv.hex`    
+- derive the uncompressed public key & address
+    - `npx tsx cryptography/src/derive.ts priv.hex`
 - clone repo
     - `git clone https://github.com/s-alad/le-AMM.git`
 - rename repo
