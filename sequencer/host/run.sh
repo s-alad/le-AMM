@@ -4,22 +4,34 @@ set -e
 LOG_PATH="$1"
 : > "$LOG_PATH"
 
-# Working directory setup
+# working directory setup
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Install cryptography dependencies
-echo "Installing cryptography dependencies..."
+# install cryptography dependencies
+echo "--- running npm ci in cryptography ----"
 cd "$REPO_ROOT/cryptography"
 npm ci
 
-# Install and build host
-echo "Installing host dependencies..."
+# install and build host
+echo "--- installing dependancies ---"
 cd "$REPO_ROOT/sequencer/host"
 npm install
 
-echo "Building host..."
+# reset port
+echo "--- clean port 8080 ---"
+PID_PORT=$(sudo lsof -ti TCP:8080 -s TCP:LISTEN)
+
+if [ ! -z "$PID_PORT" ]; then
+    echo "--- 8080 in use by PID(s): $PID_PORT ---"
+    echo "$PID_PORT" | xargs --no-run-if-empty sudo kill -9 2>/dev/null || true
+    sleep 1
+else
+    echo "--- 8080 free. ---"
+fi
+
+echo "--- building ---"
 npm run build
 
-echo "Starting host..."
+echo "--- starting ---"
 node "$REPO_ROOT/sequencer/host/dist/index.js" 2>&1 | tee -a "$LOG_PATH"

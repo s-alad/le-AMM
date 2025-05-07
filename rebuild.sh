@@ -53,23 +53,18 @@ echo "--- enclave is online ---"
 # start host using run.sh script and log output
 echo "--- starting host with run.sh ---"
 cd ~/TEE
-sequencer/host/run.sh "$HOST_LOG" &
+sequencer/host/run.sh "$HOST_LOG" > /dev/null &
 cd ~
 
 # wait briefly to ensure processes are started
 sleep 2
 
-# check if tmux is installed
-if ! command -v tmux &> /dev/null; then
-  echo "tmux not found — installing via apt..."
-  sudo apt-get update && sudo apt-get install -y tmux
+# multitail
+if ! command -v multitail &> /dev/null; then
+  echo "multitail not found — installing via apt..."
+  sudo apt-get update && sudo apt-get install -y multitail
 fi
 
-# kill any existing tmux session with the same name
-tmux kill-session -t enclave_host_logs 2>/dev/null || true
-
-# start a new tmux session with vertical splits for logs
-tmux new-session -d -s enclave_host_logs "less -r +F '$ENCLAVE_LOG'"
-tmux split-window -h "less -r +F '$HOST_LOG'"
-tmux select-layout even-horizontal
-tmux attach -t enclave_host_logs
+echo "--- displaying logs for $ENCLAVE_LOG and $HOST_LOG ---"
+echo "--- press 'b' to scroll, '/' to search. Press 'q' in the log window to close multitail and exit the script. ---"
+multitail -s 2 "$ENCLAVE_LOG" "$HOST_LOG"
