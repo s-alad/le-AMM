@@ -61,6 +61,8 @@
     - `[SEQ] PUBLIC KEY: 0x0...`
 - update the deployed contracts sequencer address (guardian.script.ts)
     - `~/TEE/contracts $ npx hardhat run scripts/GUARDIAN.script.ts --network sepolia`
+- interact with the system!
+    - `curl http://localhost:8080/swap`
 
 ### ATTESTATION
 - generate nonce for attestation:
