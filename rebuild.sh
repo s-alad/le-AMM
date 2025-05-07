@@ -1,12 +1,16 @@
 #!/bin/bash
 
+LOG_DIR="$HOME"
+ENCLAVE_LOG="$LOG_DIR/enclave.log"
+HOST_LOG="$LOG_DIR/host.log"
+
 set -x
 
 cd ~
 
 # reset logs
-: > enclave.log
-: > host.log
+: > "$ENCLAVE_LOG"
+: > "$HOST_LOG"
 
 # multitail
 if ! command -v multitail &> /dev/null; then
@@ -43,11 +47,11 @@ nitro-cli build-enclave --docker-uri sequencer-enclave:latest --output-file sequ
 
 # start enclave in background and log output
 echo "--- starting enclave ---"
-nitro-cli run-enclave --cpu-count 2 --memory 2000 --enclave-cid 16 --eif-path sequencer.eif --attach-console > enclave.log 2>&1 &
+nitro-cli run-enclave --cpu-count 2 --memory 2000 --enclave-cid 16 --eif-path sequencer.eif --attach-console > "$ENCLAVE_LOG" 2>&1 &
 
 # Wait until enclave is ready
 echo "--- waiting for enclave to come online ---"
-while ! grep -q "\[SEQ\] ONLINE" enclave.log; do
+while ! grep -q "\[SEQ\] ONLINE" "$ENCLAVE_LOG"; do
   sleep 1
 done
 echo "--- enclave is online ---"
@@ -55,11 +59,11 @@ echo "--- enclave is online ---"
 # start host using run.sh script and log output
 echo "--- starting host with run.sh ---"
 cd ~/TEE
-stdbuf -oL -eL sequencer/host/run.sh > host.log 2>&1 &
+sequencer/host/run.sh "$HOST_LOG" &
 cd ~
 
 # wait briefly to ensure processes are started
 sleep 2
 
 # tail both logs using multitail
-multitail -s 2 -sn 1 -t "ENCLAVE LOG" enclave.log -sn 2 -t "HOST LOG" host.log
+multitail -s 2 -sn 1 -t "ENCLAVE LOG" "$ENCLAVE_LOG" -sn 2 -t "HOST LOG" "$HOST_LOG"
