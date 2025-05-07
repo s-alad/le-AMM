@@ -55,7 +55,7 @@ echo "--- enclave is online ---"
 # start host using run.sh script and log output
 echo "--- starting host with run.sh ---"
 cd ~/TEE
-sequencer/host/run.sh > host.log 2>&1 &
+stdbuf -oL -eL sequencer/host/run.sh > host.log 2>&1 &
 cd ~
 
 # wait briefly to ensure processes are started
