@@ -22,4 +22,4 @@ echo "Building host..."
 npm run build
 
 echo "Starting host..."
-node "$REPO_ROOT/sequencer/host/dist/index.js" 2>&1 | stdbuf -oL cat -v | tee -a "$LOG_PATH"
+node "$REPO_ROOT/sequencer/host/dist/index.js" 2>&1 | tee -a "$LOG_PATH"
