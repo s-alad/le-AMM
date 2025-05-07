@@ -5,3 +5,4 @@ node_modules
 priv.hex
 pub.hex
 address.txt
+ec2.sh
