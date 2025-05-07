@@ -33,36 +33,28 @@
     cpu_count: 2
     ```
 
-### SETUP
-- make a 32-byte secp256k1 private key for the **guardian**
-    - `openssl rand -hex 32 > priv.hex`    
-- derive the uncompressed public key & address
-    - `npx tsx cryptography/src/derive.ts priv.hex`
-- deploy the TEEAMM contract
-    - 
+### RUN
+- ssh into EC2 instance
+    - `ssh -o IdentitiesOnly=yes -i "TEE.pem" ubuntu@ec2<>.amazonaws.com`
+- complete nitro setup
+    - `ENCLAVE & NITRO CLI SETUP`
 - clone repo
     - `git clone https://github.com/s-alad/le-AMM.git`
 - rename repo
     - `mv le-AMM/ TEE/`
+- make a 32-byte secp256k1 private key for the guardian
+    - `openssl rand -hex 32 > priv.hex`
+- derive the uncompressed public key & address
+    - `npx tsx cryptography/src/derive.ts priv.hex`
+- update .env for contracts based on .env.example and private key
+    - `touch ~/TEE/contracts/.env`
+- deploy the TEEAMM contract
+    - `~/TEE/contracts $ npx hardhat ignition deploy ignition/modules/TEEAMM.ts --network sepolia`
+- update .env for host based on .env.example, private key, and deployed contract
+    - `touch ~/TEE/sequencer/host/.env`
 - move build/rebuild script to ~
     - `mv ~/TEE/rebuild.sh ~`
     - `chmod +x rebuild.sh`
-
-
-### RUN
-0. contract/.env
-    - SEPOLIA_RPC_URL=
-    - SEQUENCER_PRIV_HEX=
-1. npx hardhat ignition deploy ignition/modules/TEEAMM.ts --network sepolia
-2. run enclave
-3. contract/GUARDIAN.script.ts
-    - contract address
-    - enclave public key
-4. host/.env
-    - SEPOLIA_RPC_URL=
-    - GUARDIAN_PRIVATE_KEY= (sam as SEQUENCER_PRIV_HEX)
-    - TEEAMM_CONTRACT_ADDRESS=
-3. 
 
 ### ATTESTATION
 - generate nonce for attestation:

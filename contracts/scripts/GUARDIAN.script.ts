@@ -1,87 +1,68 @@
-// GUARDIAN.script.ts - Update sequencer address on deployed TEEAMM contract
 import hre from "hardhat";
 import { Address } from "viem";
 import dotenv from "dotenv";
-
-// Load environment variables
 dotenv.config();
 
 async function main() {
-    // Check the current network
-    const networkName = hre.network.name;
-    console.log(`Current network: ${networkName}`);
+    console.log(`network: ${hre.network.name}`);
 
     const TEEAMM_CONTRACT_ADDRESS = "0x8Ca56de06b2e22262B248932b713601Ad6c62D36"
     const NEW_SEQUENCER_ADDRESS = "0x87574F8754e6121888E31bc26E251b88273C4b24"
 
-    // Check required environment variables
-    if (!TEEAMM_CONTRACT_ADDRESS) {
-        console.error("Missing TEEAMM_CONTRACT_ADDRESS environment variable");
+    if (!TEEAMM_CONTRACT_ADDRESS || !NEW_SEQUENCER_ADDRESS) {
+        console.error("Missing TEEAMM_CONTRACT_ADDRESS or NEW_SEQUENCER_ADDRESS environment variable");
         process.exit(1);
+    } else {
+        console.log(`TEEAMM Contract: ${TEEAMM_CONTRACT_ADDRESS}`);
+        console.log(`New sequencer address: ${NEW_SEQUENCER_ADDRESS}`);
     }
-
-    if (!NEW_SEQUENCER_ADDRESS) {
-        console.error("Missing NEW_SEQUENCER_ADDRESS environment variable");
-        process.exit(1);
-    }
-
-    console.log(`TEEAMM Contract: ${TEEAMM_CONTRACT_ADDRESS}`);
-    console.log(`New sequencer address: ${NEW_SEQUENCER_ADDRESS}`);
 
     try {
-        // Connect to the deployed contract
         const teeamm = await hre.viem.getContractAt("TEEAMM", TEEAMM_CONTRACT_ADDRESS);
 
-        // Get wallet client (should be the guardian)
-        const [walletClient] = await hre.viem.getWalletClients();
+        // wallet client (should be the guardian)
+        const [wc] = await hre.viem.getWalletClients();
 
-        if (!walletClient.account) {
+        if (!wc.account) {
             throw new Error("No wallet account available");
         }
 
-        // Get the current sequencer address
-        const currentSequencer = await teeamm.read.getSequencer() as Address;
-        console.log(`Current sequencer address: ${currentSequencer}`);
-        console.log(`Guardian address: ${walletClient.account.address}`);
+        const cseq = await teeamm.read.getSequencer() as Address;
+        console.log(`current sequencer address: ${cseq}`);
+        console.log(`guardian address: ${wc.account.address}`);
 
-        console.log("Calling updateSequencerAddress...");
-
-        // Call the updateSequencerAddress function as the guardian
+        console.log("updating sequencer address");
         const tx = await teeamm.write.updateSequencerAddress([NEW_SEQUENCER_ADDRESS]);
-        console.log(`Transaction sent: ${tx}`);
+        console.log(`txn sent: ${tx}`);
 
-        // Wait for the transaction to be mined
-        const publicClient = await hre.viem.getPublicClient();
-        console.log("Waiting for transaction confirmation...");
-        const receipt = await publicClient.waitForTransactionReceipt({
+        const pc = await hre.viem.getPublicClient();
+        console.log("waiting for transaction confirmation...");
+        const receipt = await pc.waitForTransactionReceipt({
             hash: tx,
         });
 
-        console.log(`Transaction status: ${receipt.status}`);
+        console.log(`txn status: ${receipt.status}`);
 
-        // Verify the sequencer address was updated
-        const updatedSequencer = await teeamm.read.getSequencer() as Address;
-        console.log(`Updated sequencer address: ${updatedSequencer}`);
+        const useq = await teeamm.read.getSequencer() as Address;
+        console.log(`updated sequencer address: ${useq}`);
 
-        if (updatedSequencer.toLowerCase() === NEW_SEQUENCER_ADDRESS.toLowerCase()) {
-            console.log("✅ Sequencer address updated successfully!");
+        if (useq.toLowerCase() === NEW_SEQUENCER_ADDRESS.toLowerCase()) {
+            console.log("OK.");
         } else {
-            console.error("❌ Sequencer address update failed!");
+            console.error("FAIL.");
         }
     } catch (error: any) {
-        console.error("Error updating sequencer address:", error.message);
+        console.error("err updating sequencer address:", error.message);
 
-        // Log potential reason for failure
         if (error.message.includes("!guardian")) {
-            console.error("ERROR: Transaction failed because the wallet is not the guardian");
-            console.error("Make sure your wallet/private key has the guardian role on the contract");
+            console.error("ERROR: txn failed because the wallet is not the guardian");
+            console.error("make sure hardhat.config.ts is properly setup");
         }
 
         process.exit(1);
     }
 }
 
-// Run the script
 main()
     .then(() => process.exit(0))
     .catch((error) => {
