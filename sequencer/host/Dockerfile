@@ -20,7 +20,7 @@ RUN npm ci
 # Second, install dependencies for the host package.
 # This installs host's specific dependencies AND links the local @cryptography/core
 WORKDIR /app/sequencer/host
-RUN npm ci
+RUN npm install
 
 # --- Build Step ---
 # Build the host application using its tsconfig.
