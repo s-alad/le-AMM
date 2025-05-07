@@ -4,6 +4,10 @@ set -x
 
 cd ~
 
+# reset logs
+: > enclave.log
+: > host.log
+
 # multitail
 if ! command -v multitail &> /dev/null; then
   echo "multitail not found — installing via apt..."
