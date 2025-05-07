@@ -21,9 +21,6 @@ git pull
 echo "--- building sequencer-enclave ---"
 docker build -f sequencer/enclave/Dockerfile -t sequencer-enclave:latest .
 
-echo "--- building sequencer-host ---"
-docker build -f sequencer/host/Dockerfile -t sequencer-host:latest .
-
 cd ~
 
 # describe enclaves
@@ -55,9 +52,11 @@ while ! grep -q "\[SEQ\] ONLINE" enclave.log; do
 done
 echo "--- enclave is online ---"
 
-# start host container and log output
-echo "--- starting host container ---"
-docker run --rm sequencer-host:latest > host.log 2>&1 &
+# start host using run.sh script and log output
+echo "--- starting host with run.sh ---"
+cd ~/TEE
+sequencer/host/run.sh > host.log 2>&1 &
+cd ~
 
 # wait briefly to ensure processes are started
 sleep 2
