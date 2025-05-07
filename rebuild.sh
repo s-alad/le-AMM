@@ -12,12 +12,6 @@ cd ~
 : > "$ENCLAVE_LOG"
 : > "$HOST_LOG"
 
-# multitail
-if ! command -v multitail &> /dev/null; then
-  echo "multitail not found — installing via apt..."
-  sudo apt-get update && sudo apt-get install -y multitail
-fi
-
 cd ~/TEE
 
 git pull
@@ -65,6 +59,15 @@ cd ~
 # wait briefly to ensure processes are started
 sleep 2
 
-# tail both logs using multitail
-multitail -v -ci white -i "$ENCLAVE_LOG" -t "ENCLAVE" -ci white -i "$HOST_LOG" -t "HOST" -w
+# Check if tmux is installed
+if ! command -v tmux &> /dev/null; then
+  echo "tmux not found — installing via apt..."
+  sudo apt-get update && sudo apt-get install -y tmux
+fi
+
+# Start a new tmux session with vertical splits for logs
+tmux new-session -d -s enclave_host_logs "tail -f '$ENCLAVE_LOG'"
+tmux split-window -h "tail -f '$HOST_LOG'"
+tmux select-layout even-horizontal
+tmux attach -t enclave_host_logs
 
