@@ -13,12 +13,9 @@ COPY sequencer/enclave ./sequencer/enclave
 
 # --- Install Dependencies ---
 
-# << --- ADDED STEPS START --- >>
 # First, install dependencies specifically for the cryptography package
-# This ensures its own code can find its direct dependencies (@noble/*) during compilation
 WORKDIR /app/cryptography
 RUN npm ci
-# << --- ADDED STEPS END --- >>
 
 # Second, install dependencies for the enclave package.
 # This installs enclave's specific dependencies AND links the local @cryptography/core
